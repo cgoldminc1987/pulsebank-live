@@ -283,4 +283,61 @@ router.post('/webhook', async (req, res) => {
   }
 });
 
+// POST /api/v1/kyc/admin/verify - an admin approves a queued reference
+// (Bearer ADMIN_TOKEN). Manual review never auto-approves: a human reviews
+// the applicant's documents, then records the decision here. Flips the
+// reference to 'verified' in kyc_verifications AND upserts the customers
+// gate row so reloadable open-loop issuance can proceed (the gate short-
+// circuits on customers.kyc_status='verified' without calling Stripe).
+router.post('/admin/verify', async (req, res, next) => {
+  try {
+    const expected = process.env.ADMIN_TOKEN;
+    if (!expected) return res.status(503).json({ error: 'admin_token_not_configured' });
+    if ((req.headers['authorization'] || '') !== `Bearer ${expected}`) {
+      return res.status(401).json({ error: 'unauthorized' });
+    }
+    const { reference, note, verified_name, verified_country } = req.body || {};
+    if (!reference || typeof reference !== 'string' || reference.length > 120) {
+      return res.status(400).json({ error: 'reference_required', message: 'Pass {"reference": "<the reference that was queued for manual review>"}' });
+    }
+    const pool = req.app.locals.pool;
+    const prior = await latestByReference(pool, reference);
+    if (!prior) {
+      return res.status(404).json({ error: 'not_found', message: 'No verification row for this reference - queue it first via POST /api/v1/kyc/session' });
+    }
+    if (prior.status === 'verified') {
+      return res.status(409).json({ error: 'already_verified', ...publicView(prior) });
+    }
+    if (prior.session_id && !VERIFIED_STATUSES.has(prior.status)) {
+      return res.status(409).json({ error: 'stripe_session_active', message: 'This reference has a live Stripe Identity session - let the Stripe webhook/refresh record the decision instead.' });
+    }
+    await pool.query('BEGIN');
+    try {
+      await pool.query(
+        `UPDATE kyc_verifications
+         SET status='verified', verified_at=NOW(),
+             verified_name=COALESCE($2, verified_name),
+             verified_country=COALESCE($3, verified_country),
+             last_error=NULL,
+             updated_at=NOW()
+         WHERE id=$1`,
+        [prior.id, verified_name || null, verified_country || null]
+      );
+      await pool.query(
+        `INSERT INTO customers (email, kyc_status, kyc_provider, updated_at)
+         VALUES ($1, 'verified', 'manual_review', NOW())
+         ON CONFLICT (email) DO UPDATE SET kyc_status='verified', kyc_provider='manual_review', updated_at=NOW()`,
+        [reference.toLowerCase()]
+      );
+      await pool.query('COMMIT');
+    } catch (txErr) {
+      await pool.query('ROLLBACK').catch(() => {});
+      throw txErr;
+    }
+    const fresh = await latestByReference(pool, reference);
+    console.log(`kyc admin: manual approval recorded for ${reference}${note ? ` (note: ${note})` : ''}`);
+    return res.json({ ok: true, ...publicView(fresh) });
+  } catch (e) { return next(e); }
+});
+
 module.exports = router;
