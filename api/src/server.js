@@ -8,6 +8,7 @@ const barcodesRouter = require('./routes/barcodes');
 const merchantsRouter = require('./routes/merchants');
 const distributorRouter = require('./routes/distributor');
 const squareRouter = require('./routes/square');
+const shopifyRouter = require('./routes/shopify');
 const refundsRouter = require('./routes/refunds');
 const lithicRouter = require('./routes/lithic');
 const healthRouter = require('./routes/health');
@@ -70,11 +71,12 @@ app.use('/api/v1/barcodes', barcodesRouter);
 app.use('/api/v1/merchants', merchantsRouter);
 app.use('/api/v1/distributor', distributorRouter);
 app.use('/api/v1/square', squareRouter);
+app.use('/api/v1/shopify', shopifyRouter);
 app.use('/api/v1/refunds', refundsRouter);
 app.use('/api/v1/lithic', lithicRouter);
 
 // 404 as JSON, listing what this host serves
-app.use((req,res)=> res.status(404).json({ error:'not found', path:req.path, endpoints:[ 'GET /api/v1/health','POST /api/v1/cards/issue','POST /api/v1/cards/:id/redeem','POST /api/v1/cards/:id/void','GET /api/v1/cards/:id/balance','GET /api/v1/cards/balance/:barcode','POST /api/v1/cards/:id/wallet','POST /api/v1/barcodes/register','DELETE /api/v1/barcodes/:barcode','GET /api/v1/merchants/:id/settlement','POST /api/v1/distributor/issue','POST /api/v1/square/redeem','POST /api/v1/refunds','GET /api/v1/refunds/:id','POST /api/v1/lithic/cards','GET /api/v1/lithic/status' ] }));
+app.use((req,res)=> res.status(404).json({ error:'not found', path:req.path, endpoints:[ 'GET /api/v1/health','POST /api/v1/cards/issue','POST /api/v1/cards/:id/redeem','POST /api/v1/cards/:id/void','GET /api/v1/cards/:id/balance','GET /api/v1/cards/balance/:barcode','POST /api/v1/cards/:id/wallet','POST /api/v1/barcodes/register','DELETE /api/v1/barcodes/:barcode','GET /api/v1/merchants/:id/settlement','POST /api/v1/distributor/issue','POST /api/v1/square/redeem','POST /api/v1/shopify/redeem','POST /api/v1/refunds','GET /api/v1/refunds/:id','POST /api/v1/lithic/cards','GET /api/v1/lithic/status' ] }));
 
 // BC compliance guard
 app.use((err,req,res,next)=>{
