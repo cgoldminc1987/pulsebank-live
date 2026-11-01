@@ -116,6 +116,25 @@ router.post('/session', async (req, res, next) => {
     });
   } catch (e) {
     if (e.code === 'IDENTITY_NOT_ENABLED') {
+      if (MANUAL_REVIEW_ENABLED) {
+        const prior = await latestByReference(pool, reference).catch(() => null);
+        if (!(prior && prior.status === MANUAL_REVIEW)) {
+          try {
+            await pool.query(
+              `INSERT INTO kyc_verifications (reference, email, status, account_type, livemode)
+               VALUES ($1,$2,$3,$4,false)
+               ON CONFLICT (reference) DO NOTHING`,
+              [reference, email || null, MANUAL_REVIEW, String(account_type || 'reloadable_card').slice(0, 60)]
+            );
+          } catch (_) { /* best-effort */ }
+        }
+        return res.status(202).json({
+          status: MANUAL_REVIEW,
+          reference,
+          manual_review: true,
+          message: 'Stripe Identity is not enabled on this Stripe account yet. The reference has been queued for manual KYC review; no Stripe session was created and no per-session fee is charged.',
+        });
+      }
       return res.status(503).json({
         error: 'identity_not_enabled',
         message: 'Stripe Identity is not enabled on this Stripe account yet. An account admin must submit the application once.',

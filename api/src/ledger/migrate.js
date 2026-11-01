@@ -57,6 +57,8 @@ async function migrate(){
   await pool.query(`
   ALTER TABLE customers ADD COLUMN IF NOT EXISTS stripe_session_id TEXT;
   ALTER TABLE customers ADD COLUMN IF NOT EXISTS kyc_verified_name TEXT;
+  -- 'manual_review' rows have no Stripe session; NULL not allowed otherwise
+  ALTER TABLE kyc_verifications ALTER COLUMN session_id DROP NOT NULL;
   ALTER TABLE customers ADD COLUMN IF NOT EXISTS kyc_verified_country TEXT;
   ALTER TABLE customers ADD COLUMN IF NOT EXISTS kyc_verified_at TIMESTAMPTZ;
   ALTER TABLE customers ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
