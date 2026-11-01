@@ -20,6 +20,11 @@ const {
 
 const VERIFIED_STATUSES = new Set(['verified', 'canceled', 'redacted']);
 
+// Fallback when Stripe Identity isn't enabled on the account: queue the
+// reference for manual review instead of failing hard with 503.
+const MANUAL_REVIEW = 'manual_review';
+const MANUAL_REVIEW_ENABLED = process.env.KYC_MANUAL_REVIEW !== 'off';
+
 function kycBaseUrl() {
   return process.env.KYC_BASE_URL || process.env.PUBLIC_BASE_URL || 'https://pulsebank-gc-api.onrender.com';
 }
@@ -163,6 +168,8 @@ router.get('/session/:reference/refresh', async (req, res, next) => {
     const row = await latestByReference(pool, req.params.reference);
     if (!row) return res.status(404).json({ error: 'not_found' });
     if (VERIFIED_STATUSES.has(row.status)) return res.json(publicView(row));
+    // manual_review rows have no Stripe session to refresh
+    if (!row.session_id) return res.json(publicView(row));
 
     const s = await retrieveVerificationSession(row.session_id);
     const outputs = s.verified_outputs || {};
