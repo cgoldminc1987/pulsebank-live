@@ -1751,5 +1751,91 @@ Error generating stack: `+u.message+`
 </script>
   <script>(function(){function m(a){var h=a.getAttribute("href");if(!h)return;try{var u=new URL(h,document.baseURI);if(((u.protocol==="http:"||u.protocol==="https:")&&u.host!==location.host)||u.protocol==="mailto:"||u.protocol==="tel:"||u.protocol==="sms:"){a.target="_blank";a.rel="noopener noreferrer";}}catch(e){}}function s(){document.querySelectorAll("a[href]").forEach(m);}if(document.readyState!=="loading"){s();}else{document.addEventListener("DOMContentLoaded",s);}document.addEventListener("click",function(e){var a=e.target&&e.target.closest&&e.target.closest("a[href]");if(a){m(a);}},true);})();</script>
   <script type="application/json" data-clippy-inline-media-manifest="1">{"version":1,"slots":[]}</script>
+<script>
+/* PulseBank terminal — action buttons (added 2026-11-01; independent of the React bundle) */
+(function () {
+  var API = (window.PULSEBANK_API_BASE || 'https://api.pulsebank.ca') + '/api/v1';
+  var logId = 'pb-act-log';
+
+  function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+  function fields() {
+    var inputs = [].slice.call(document.querySelectorAll('input, select')).filter(function (e) { return e.offsetParent !== null; });
+    var amount, bin, merchant, card;
+    inputs.forEach(function (e) {
+      if (e.tagName === 'SELECT') bin = e;
+      else if (e.type === 'number') amount = e;
+      else if (/^mer_/.test(e.value || '')) merchant = e;
+      else if (/^(card_|\{\{)/.test(e.value || '')) card = e;
+    });
+    return { amount: amount, bin: bin, merchant: merchant, card: card };
+  }
+  function show(ok, title, body) {
+    var log = document.getElementById(logId); if (!log) return;
+    var item = el('div');
+    item.style.cssText = 'margin:8px 0;padding:10px 12px;border-radius:10px;font:12px "Geist Mono",monospace;white-space:pre-wrap;word-break:break-all;border:1px solid ' + (ok ? '#299f99' : '#d64545') + ';color:' + (ok ? '#0b7d78' : '#a33') + ';background:' + (ok ? 'rgba(41,159,153,.08)' : 'rgba(214,69,69,.07)');
+    item.textContent = title + '\n' + body;
+    log.insertBefore(item, log.firstChild);
+  }
+  function send(method, path, body, title, cb) {
+    var t0 = Date.now();
+    fetch(API + path, {
+      method: method,
+      headers: body ? { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'ui-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8) } : undefined,
+      body: body ? JSON.stringify(body) : undefined
+    }).then(function (r) { return r.text().then(function (t) { return { s: r.status, t: t }; }); })
+      .then(function (r) { show(r.s < 400, title + ' — ' + r.s + ' · ' + (Date.now() - t0) + 'ms', r.t); if (cb) cb(r); })
+      .catch(function (e) { show(false, title + ' — network', String(e)); });
+  }
+  function num(v, dflt) { var n = Math.round(parseFloat(v) * 100); return isFinite(n) && n > 0 ? n : dflt; }
+  function cardId() { var c = fields().card; return (c && c.value && c.value.trim()) || 'card_' + Date.now(); }
+
+  window.PB_ACTIONS = {
+    issue: function () {
+      var f = fields();
+      var type = (location.hash || '') === '#reloadable' || (document.body.innerText.indexOf('reloadable KYC') > -1 && document.querySelector('[aria-pressed="true"],.active') && false) ? 'mall_open_loop' : 'mall_open_loop';
+      var body = { merchant_id: (f.merchant && f.merchant.value) || 'mer_cumberland_coffee', amount_cad: num(f.amount && f.amount.value, 5000), type: type, delivery: 'email' };
+      if (f.bin) body.network = f.bin.value === '511340' ? 'mastercard' : 'visa';
+      send('POST', '/cards/issue', body, 'Issue card', null);
+    },
+    balance: function () {
+      send('GET', '/cards/' + encodeURIComponent(cardId()) + '/balance', null, 'Balance', null);
+    },
+    wallet: function () {
+      var id = cardId();
+      send('POST', '/cards/' + encodeURIComponent(id) + '/wallet', null, 'Wallet pass', null);
+    }
+  };
+
+  function mount() {
+    if (document.getElementById(logId)) return true;
+    var host = document.body;
+    if (!host) return false;
+    var panel = el('div');
+    panel.style.cssText = 'margin:14px 4px;padding:12px;border:1px solid rgba(41,159,153,.45);border-radius:14px;background:rgba(41,159,153,.06)';
+    var h = el('div', null, 'ACTIONS — ' + API.replace(/^https:\\/\\//, ''));
+    h.style.cssText = 'font:600 11px "Geist Mono",monospace;letter-spacing:.08em;color:#0b7d78;margin-bottom:8px';
+    panel.appendChild(h);
+    var row = el('div'); row.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px';
+    [
+      ['Issue card', 'issue'],
+      ['Balance', 'balance'],
+      ['Wallet pass', 'wallet']
+    ].forEach(function (b) {
+      var btn = el('button', null, b[0]);
+      btn.style.cssText = 'flex:1 1 30%;padding:10px 8px;border:0;border-radius:10px;background:#299f99;color:#fff;font:600 13px Geist,sans-serif;cursor:pointer';
+      btn.addEventListener('click', function () { window.PB_ACTIONS[b[1]](); });
+      row.appendChild(btn);
+    });
+    panel.appendChild(row);
+    var log = el('div'); log.id = logId; log.style.cssText = 'margin-top:8px';
+    panel.appendChild(log);
+    var anchor = document.querySelector('#root') || host;
+    anchor.appendChild(panel);
+    return true;
+  }
+  var tries = 0;
+  var timer = setInterval(function () { tries++; if (mount() || tries > 60) clearInterval(timer); }, 500);
+})();
+</script>
 </body>
 </html>
