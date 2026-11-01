@@ -1,6 +1,9 @@
 
 const { randomUUID } = require('crypto');
 
+// Public base URL advertised in Apple Wallet pass links.
+const PUBLIC_BASE = process.env.PUBLIC_BASE_URL || 'https://pulsebank-gc-api.onrender.com';
+
 /**
  * PulseBank Visa / Mastercard Open-Loop Adapter
  * BIN Sponsor: Peoples Trust Company (Peoples Group)
@@ -160,7 +163,7 @@ async function issueOpenLoopCard({ pool, merchant_id, amount_cad, network, type,
       license: `BIN ${bin} PREPAID DEBIT - Peoples Trust via InComm reference 492726`,
       disclosure: processorCard.disclosure,
       usable_anywhere: `Usable anywhere ${network} accepted - Vanilla-style single-load $25-$500 non-reloadable`,
-      apple_wallet_url: `https://api.pulsebank.ca/wallet/${cardId}.pkpass`
+      apple_wallet_url: `${PUBLIC_BASE}/wallet/${cardId}.pkpass`
     };
   } else {
     // Reloadable path - Trulioo KYC + FINTRAC + RPAA
@@ -185,7 +188,7 @@ async function issueOpenLoopCard({ pool, merchant_id, amount_cad, network, type,
       issuer: 'Peoples Trust Company',
       disclosure: processorCard.disclosure,
       usable_anywhere: `Usable anywhere ${network} accepted - reloadable with KYC`,
-      apple_wallet_url: `https://api.pulsebank.ca/wallet/${cardId}.pkpass`
+      apple_wallet_url: `${PUBLIC_BASE}/wallet/${cardId}.pkpass`
     };
   }
 }

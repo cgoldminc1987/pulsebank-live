@@ -2,6 +2,9 @@
 const { randomUUID } = require('crypto');
 // Node 18+ has global fetch; node-fetch v3 is ESM-only and breaks require()
 
+// Public base URL advertised in receipt footers (balance-check link).
+const PUBLIC_BASE = process.env.PUBLIC_BASE_URL || 'https://pulsebank-gc-api.onrender.com';
+
 /**
  * Square POS Middleware for PulseBank Gift Cards
  * For Cumberland / Courtenay brick-and-mortar pilot
@@ -74,7 +77,7 @@ async function squareRedeemHandler(req, res) {
       tender_type: 'OTHER',
       note: `PulseBank GC ${barcode} - Remaining $${(newBal/100).toFixed(2)}`
     },
-    receipt_footer: `PulseBank Gift Card - No expiry, No fees per BC BPCPA s.56 | Balance: $${(newBal/100).toFixed(2)} | Check: https://api.pulsebank.ca/api/v1/cards/balance/${barcode} | Funds held in segregated trust at Peoples Trust`
+    receipt_footer: `PulseBank Gift Card - No expiry, No fees per BC BPCPA s.56 | Balance: $${(newBal/100).toFixed(2)} | Check: ${PUBLIC_BASE}/api/v1/cards/balance/${barcode} | Funds held in segregated trust at Peoples Trust`
   });
 }
 

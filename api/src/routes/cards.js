@@ -3,6 +3,10 @@ const express = require('express');
 const { z } = require('zod');
 const { v4: uuidv4 } = require('uuid');
 const router = express.Router();
+
+// Public base URL advertised in wallet URLs and balance-check links.
+// PUBLIC_BASE_URL env wins; default is this API's live Render host.
+const PUBLIC_BASE = process.env.PUBLIC_BASE_URL || 'https://pulsebank-gc-api.onrender.com';
 const { issueOpenLoopCard } = require('../adapters/visa_mc');
 const { generateGiftCardPass } = require('../wallet/apple');
 
@@ -90,14 +94,14 @@ router.post('/issue', async (req,res,next) => {
       type: data.type,
       barcode,
       status: 'issued',
-      wallet_url: data.delivery === 'apple_wallet' ? `https://api.pulsebank.ca/wallet/${cardId}.pkpass` : null,
+      wallet_url: data.delivery === 'apple_wallet' ? `${PUBLIC_BASE}/wallet/${cardId}.pkpass` : null,
       compliance: {
         no_expiry: true,
         fees_disclosure: data.type === 'mall_open_loop' 
           ? 'Mall card: $1.50 activation fee, $2.50/mo dormancy after 15mo per BC Reg 292/2008' 
           : 'No fees. No expiry per BC BPCPA s.56',
         trust_account_id: data.compliance?.trust_account_id || 'trust_bc_001',
-        balance_check_url: `https://api.pulsebank.ca/api/v1/cards/balance/${barcode}`
+        balance_check_url: `${PUBLIC_BASE}/api/v1/cards/balance/${barcode}`
       },
       external_reference: data.external_reference
     };
