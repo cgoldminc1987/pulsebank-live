@@ -123,7 +123,11 @@ router.get('/:id/balance', async (req,res) => {
 // Public balance lookup by barcode (printed on the card / linked from receipts)
 router.get('/balance/:barcode', async (req,res) => {
   const { rows } = await req.app.locals.pool.query(
-    'SELECT barcode, balance_cad, status, no_expiry FROM cards WHERE barcode=$1', [req.params.barcode]);
+    `SELECT c.barcode, c.balance_cad, c.status, c.no_expiry
+       FROM cards c
+      WHERE c.barcode=$1
+         OR EXISTS (SELECT 1 FROM barcode_aliases b WHERE b.card_id=c.id AND b.barcode=$1)
+      LIMIT 1`, [req.params.barcode]);
   if (!rows[0]) return res.status(404).json({error:'card not found'});
   res.json({ ...rows[0], balance_check: 'no expiry, no fees per BC BPCPA s.56' });
 });
