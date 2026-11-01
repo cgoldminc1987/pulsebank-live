@@ -1,7 +1,7 @@
 {
   "name": "pulsebank-giftcard-commands",
-  "version": "3.0.0",
-  "description": "PulseBank Gift Card Program - Visa/MC + Square + Apple Wallet - Own Host",
+  "version": "3.0.1",
+  "description": "PulseBank Gift Card Program - Visa/MC + Square + Apple Wallet - Render free tier (no native modules)",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
