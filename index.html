@@ -1870,6 +1870,42 @@ Error generating stack: `+u.message+`
       var aggSel = f.agg ? f.agg.value : 'givex';
       send('POST', '/distributor/issue', { aggregator: aggSel, amount_cad: num(f.amount && f.amount.value, 5000), merchant_id: (f.merchant && f.merchant.value) || 'mer_cumberland_coffee' }, 'Distributor issue (' + aggSel + ')', null);
     },
+    lithicIssue: function () {
+      var f = fields();
+      var cents = num(f.amount && f.amount.value, 500000);
+      var body = { memo: 'PulseBank terminal · $' + (cents / 100).toFixed(2), spend_limit_cents: cents, spend_limit_duration: 'TRANSACTION' };
+      send('POST', '/lithic/cards', body, 'Lithic card (sandbox)', function (r) {
+        if (r.s >= 400) return;
+        try {
+          var j = JSON.parse(r.t);
+          window.PB_LAST = window.PB_LAST || {};
+          window.PB_LAST.lithicToken = j.id; window.PB_LAST.pan = j.pan; window.PB_LAST.last4 = j.last_four; window.PB_LAST.authTx = null;
+          show(true, 'Lithic card issued ····' + (j.last_four || ''), 'token ' + j.id + '\npan ' + j.pan + ' · cvv ' + j.cvv + ' · exp ' + j.exp_month + '/' + j.exp_year);
+        } catch (e) {}
+      });
+    },
+    lithicAuth: function () {
+      var f = fields();
+      var pan = (window.PB_LAST && window.PB_LAST.pan) || '';
+      var bcIn = document.getElementById('pb-barcode-field');
+      if (bcIn && /^4111\d{12}$/.test(bcIn.value.trim())) pan = bcIn.value.trim();
+      if (!pan) { show(false, 'Lithic auth', 'No PAN yet — click "Lithic card" first (or paste a 4111… PAN into the Barcode field).'); return; }
+      var body = { amount: num(f.amount && f.amount.value, 1250), pan: pan, descriptor: 'PULSE MERCHANT TEST', mcc: '5812' };
+      send('POST', '/lithic/simulate/auth', body, 'Lithic auth', function (r) {
+        if (r.s >= 400) return;
+        try { var j = JSON.parse(r.t); window.PB_LAST.authTx = j.token; show(true, 'Lithic auth approved', 'tx ' + j.token); } catch (e) {}
+      });
+    },
+    lithicClearing: function () {
+      var t = window.PB_LAST && window.PB_LAST.authTx;
+      if (!t) { show(false, 'Lithic clearing', 'No auth token yet — run "Lithic auth" first.'); return; }
+      send('POST', '/lithic/simulate/clearing', { token: t }, 'Lithic clearing', null);
+    },
+    lithicTxns: function () {
+      var t = (window.PB_LAST && window.PB_LAST.lithicToken) || '';
+      if (!t) { show(false, 'Lithic txns', 'No Lithic card token yet — click "Lithic card" first.'); return; }
+      send('GET', '/lithic/cards/' + encodeURIComponent(t) + '/transactions', null, 'Lithic transactions', null);
+    },
     health: function () {
       send('GET', '/health', null, 'Health', null);
     }
@@ -1906,6 +1942,10 @@ Error generating stack: `+u.message+`
       ['Wallet pass', 'wallet'],
       ['Refund', 'refund'],
       ['Distributor', 'distributor'],
+      ['Lithic card', 'lithicIssue'],
+      ['Lithic auth', 'lithicAuth'],
+      ['Lithic clearing', 'lithicClearing'],
+      ['Lithic txns', 'lithicTxns'],
       ['Health', 'health']
     ].forEach(function (b) {
       var btn = el('button', null, b[0]);
