@@ -20,11 +20,11 @@ router.post('/register', async (req,res) => {
     const card = rows[0];
     const merchant_id = data.merchant_id || card.merchant_id;
     const { rows: dup } = await pool.query('SELECT card_id FROM barcode_aliases WHERE barcode=$1', [data.barcode]);
-    if (dup.rows[0]) {
-      if (dup.rows[0].card_id === data.card_id) {
+    if (dup[0]) {
+      if (dup[0].card_id === data.card_id) {
         return res.status(200).json({ ok:true, idempotent:true, card_id:data.card_id, barcode:data.barcode, merchant_id });
       }
-      return res.status(409).json({ error:'barcode already registered', barcode:data.barcode, registered_to_card:dup.rows[0].card_id });
+      return res.status(409).json({ error:'barcode already registered', barcode:data.barcode, registered_to_card:dup[0].card_id });
     }
     await pool.query(
       'INSERT INTO barcode_aliases (barcode, card_id, merchant_id, registered_by, note) VALUES ($1,$2,$3,$4,$5)',
