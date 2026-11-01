@@ -43,7 +43,7 @@ async function squareRedeemHandler(req, res) {
     if (dup.rows[0]) return res.status(200).json({ ok:true, idempotent_replay:true, square_payment_id });
   }
 
-  // Find card: a barcode registered via /barcodes/register first, else the card's own barcode
+  // Find card: a barcode registered via /barcodes/register first, else the card own barcode
   let card = (await pool.query('SELECT c.* FROM cards c JOIN barcode_aliases b ON b.card_id=c.id WHERE b.barcode=$1 AND c.merchant_id=$2', [barcode, merchant_id])).rows[0];
   if (!card) card = (await pool.query('SELECT * FROM cards WHERE barcode=$1 AND merchant_id=$2', [barcode, merchant_id])).rows[0];
   if (!card) {
