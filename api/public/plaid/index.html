@@ -30,8 +30,9 @@ document.getElementById('go').onclick = async () => {
         const x = await fetch('/api/v1/plaid/exchange', { method: 'POST', headers: hdr(), body: JSON.stringify({ public_token, email: document.getElementById('email').value || undefined }) });
         out(await x.json());
       },
-      onExit: (err) => { if (err) out(err); }
+      onExit: (err) => out(err ? err : 'Plaid Link closed without linking.')
     }).open();
+    out('Plaid Link is open. Choose your bank and sign in in the window.');
   } catch (e) { out(String(e)); }
 };
 </script></body></html>
