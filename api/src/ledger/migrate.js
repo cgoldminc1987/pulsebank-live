@@ -22,6 +22,19 @@ async function migrate(){
   ALTER TABLE cards ADD COLUMN IF NOT EXISTS kyc_status TEXT;
   CREATE TABLE IF NOT EXISTS customers (email TEXT PRIMARY KEY, kyc_status TEXT DEFAULT 'pending', kyc_provider TEXT, created_at TIMESTAMPTZ DEFAULT NOW());
   `);
+  // Barcode registration: map external / distributor / printed barcodes onto PulseBank cards
+  // so POS scans and balance lookups resolve without re-issuing.
+  await pool.query(`
+  CREATE TABLE IF NOT EXISTS barcode_aliases (
+    barcode TEXT PRIMARY KEY,
+    card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+    merchant_id TEXT REFERENCES merchants(id),
+    registered_by TEXT DEFAULT 'terminal',
+    registered_at TIMESTAMPTZ DEFAULT NOW(),
+    note TEXT
+  );
+  CREATE INDEX IF NOT EXISTS barcode_aliases_card_idx ON barcode_aliases(card_id);
+  `);
   // Refunds: return unredeemed store credit to the original payment method
   // (Stripe refund to the funding credit card, or Stripe Connect transfer for a bank-account payout)
   await pool.query(`

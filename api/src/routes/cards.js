@@ -3,10 +3,6 @@ const express = require('express');
 const { z } = require('zod');
 const { v4: uuidv4 } = require('uuid');
 const router = express.Router();
-
-// Public base URL advertised in wallet URLs and balance-check links.
-// PUBLIC_BASE_URL env wins; default is this API's live Render host.
-const PUBLIC_BASE = process.env.PUBLIC_BASE_URL || 'https://pulsebank-gc-api.onrender.com';
 const { issueOpenLoopCard } = require('../adapters/visa_mc');
 const { generateGiftCardPass } = require('../wallet/apple');
 
@@ -94,14 +90,14 @@ router.post('/issue', async (req,res,next) => {
       type: data.type,
       barcode,
       status: 'issued',
-      wallet_url: data.delivery === 'apple_wallet' ? `${PUBLIC_BASE}/wallet/${cardId}.pkpass` : null,
+      wallet_url: data.delivery === 'apple_wallet' ? `https://api.pulsebank.ca/wallet/${cardId}.pkpass` : null,
       compliance: {
         no_expiry: true,
         fees_disclosure: data.type === 'mall_open_loop' 
           ? 'Mall card: $1.50 activation fee, $2.50/mo dormancy after 15mo per BC Reg 292/2008' 
           : 'No fees. No expiry per BC BPCPA s.56',
         trust_account_id: data.compliance?.trust_account_id || 'trust_bc_001',
-        balance_check_url: `${PUBLIC_BASE}/api/v1/cards/balance/${barcode}`
+        balance_check_url: `https://api.pulsebank.ca/api/v1/cards/balance/${barcode}`
       },
       external_reference: data.external_reference
     };
@@ -145,6 +141,51 @@ router.post('/:id/wallet', async (req,res) => {
   });
   if (pass.fallback) return res.status(503).json({ ...pass, error: 'Apple Wallet certificates not configured on this host' });
   res.type('application/vnd.apple.pkpass').send(pass.buffer);
+});
+
+// Barcode registration: bind an external/distributor barcode to a card so scans resolve
+const RegisterSchema = z.object({
+  card_id: z.string(),
+  barcode: z.string().min(4).max(64),
+  merchant_id: z.string().optional(),
+  note: z.string().max(200).optional()
+});
+
+router.post('/barcodes/register', async (req,res) => {
+  const pool = req.app.locals.pool;
+  try {
+    const data = RegisterSchema.parse(req.body);
+    const { rows } = await pool.query('SELECT id, merchant_id, status, barcode FROM cards WHERE id=$1', [data.card_id]);
+    if (!rows[0]) return res.status(404).json({ error:'card not found', card_id: data.card_id });
+    const card = rows[0];
+    const merchant_id = data.merchant_id || card.merchant_id;
+    const { rows: dup } = await pool.query('SELECT card_id FROM barcode_aliases WHERE barcode=$1', [data.barcode]);
+    if (dup.rows[0]) {
+      if (dup.rows[0].card_id === data.card_id) {
+        return res.status(200).json({ ok:true, idempotent:true, card_id:data.card_id, barcode:data.barcode, merchant_id });
+      }
+      return res.status(409).json({ error:'barcode already registered', barcode:data.barcode, registered_to_card:dup.rows[0].card_id });
+    }
+    await pool.query(
+      'INSERT INTO barcode_aliases (barcode, card_id, merchant_id, registered_by, note) VALUES ($1,$2,$3,$4,$5)',
+      [data.barcode, data.card_id, merchant_id, 'terminal', data.note || null]
+    );
+    res.status(201).json({
+      ok:true, card_id:data.card_id, barcode:data.barcode, merchant_id,
+      resolves_to:{ card_id:card.id, status:card.status, card_own_barcode:card.barcode },
+      balance_check_url:`https://pulsebank-gc-api.onrender.com/api/v1/cards/balance/${encodeURIComponent(data.barcode)}`
+    });
+  } catch(e) {
+    if (e.code === '23503') return res.status(404).json({ error:'card not found', detail:e.detail });
+    if (e.issues) return res.status(400).json({ error:'invalid body', issues:e.issues.map(i=>i.message) });
+    res.status(500).json({ error:e.message });
+  }
+});
+
+router.delete('/barcodes/:barcode', async (req,res) => {
+  const { rowCount } = await req.app.locals.pool.query('DELETE FROM barcode_aliases WHERE barcode=$1', [req.params.barcode]);
+  if (!rowCount) return res.status(404).json({ error:'barcode not registered', barcode:req.params.barcode });
+  res.json({ ok:true, unregistered:req.params.barcode });
 });
 
 router.post('/:id/redeem', async (req,res,next) => {

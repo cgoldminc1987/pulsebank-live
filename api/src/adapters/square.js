@@ -2,9 +2,6 @@
 const { randomUUID } = require('crypto');
 // Node 18+ has global fetch; node-fetch v3 is ESM-only and breaks require()
 
-// Public base URL advertised in receipt footers (balance-check link).
-const PUBLIC_BASE = process.env.PUBLIC_BASE_URL || 'https://pulsebank-gc-api.onrender.com';
-
 /**
  * Square POS Middleware for PulseBank Gift Cards
  * For Cumberland / Courtenay brick-and-mortar pilot
@@ -46,14 +43,14 @@ async function squareRedeemHandler(req, res) {
     if (dup.rows[0]) return res.status(200).json({ ok:true, idempotent_replay:true, square_payment_id });
   }
 
-  // Find card
-  const { rows } = await pool.query('SELECT * FROM cards WHERE barcode=$1 AND merchant_id=$2', [barcode, merchant_id]);
-  if (!rows[0]) {
+  // Find card: a barcode registered via /barcodes/register first, else the card's own barcode
+  let card = (await pool.query('SELECT c.* FROM cards c JOIN barcode_aliases b ON b.card_id=c.id WHERE b.barcode=$1 AND c.merchant_id=$2', [barcode, merchant_id])).rows[0];
+  if (!card) card = (await pool.query('SELECT * FROM cards WHERE barcode=$1 AND merchant_id=$2', [barcode, merchant_id])).rows[0];
+  if (!card) {
     // Card unknown locally: never block an island shop - queue the redemption for sync
     await pool.query("INSERT INTO offline_queue (id, merchant_id, barcode, action, amount_cad) VALUES ($1,$2,$3,'REDEEM',$4)", [randomUUID(), merchant_id, barcode, amount_cad]).catch(()=>{});
     return res.status(202).json({ queued:true, message:'Card not found locally - queued for sync (important for island shops)' });
   }
-  const card = rows[0];
   if (card.balance_cad < amount_cad) return res.status(402).json({ error:'Insufficient balance', balance_cad: card.balance_cad, receipt_text: `Balance $${(card.balance_cad/100).toFixed(2)} - No expiry per BC BPCPA` });
 
   const newBal = card.balance_cad - amount_cad;
@@ -77,7 +74,7 @@ async function squareRedeemHandler(req, res) {
       tender_type: 'OTHER',
       note: `PulseBank GC ${barcode} - Remaining $${(newBal/100).toFixed(2)}`
     },
-    receipt_footer: `PulseBank Gift Card - No expiry, No fees per BC BPCPA s.56 | Balance: $${(newBal/100).toFixed(2)} | Check: ${PUBLIC_BASE}/api/v1/cards/balance/${barcode} | Funds held in segregated trust at Peoples Trust`
+    receipt_footer: `PulseBank Gift Card - No expiry, No fees per BC BPCPA s.56 | Balance: $${(newBal/100).toFixed(2)} | Check: https://api.pulsebank.ca/api/v1/cards/balance/${barcode} | Funds held in segregated trust at Peoples Trust`
   });
 }
 
