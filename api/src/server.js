@@ -16,7 +16,9 @@ const stripeRouter = require('./routes/stripe');
 const healthRouter = require('./routes/health');
 
 const app = express();
-app.use(express.json());
+// Keep the exact raw bytes for Stripe webhook signature verification
+// (constructWebhookEvent must HMAC the body Stripe signed, not a re-serialization).
+app.use(express.json({ verify: (req, res, buf) => { req.rawBody = buf; } }));
 const { join } = require('path');
 
 // CORS: let the merchant terminal call this API from a browser.

@@ -88,10 +88,12 @@ async function fulfillSession(pool, session) {
 }
 
 // POST /api/v1/stripe/webhook - Stripe-signed events only.
-router.post('/webhook', express.raw({ type: 'application/json', limit: '1mb' }), async (req, res) => {
+// Raw bytes come from the global json parser's verify hook (req.rawBody):
+// signature verification must run over the body exactly as Stripe signed it.
+router.post('/webhook', async (req, res) => {
   let event;
   try {
-    event = constructWebhookEvent(req.body, req.headers['stripe-signature'], process.env.STRIPE_WEBHOOK_SECRET);
+    event = constructWebhookEvent(req.rawBody, req.headers['stripe-signature'], process.env.STRIPE_WEBHOOK_SECRET);
   } catch (e) {
     console.error('stripe webhook rejected:', e.message);
     return res.status(e.code === 'WEBHOOK_SECRET_MISSING' ? 503 : 400).json({ error: e.code || 'webhook_invalid', message: e.message });

@@ -206,10 +206,10 @@ const STATUS_BY_EVENT = {
   'identity.verification_session.redacted': 'redacted',
 };
 
-router.post('/webhook', express.raw({ type: 'application/json', limit: '1mb' }), async (req, res) => {
+router.post('/webhook', async (req, res) => {
   let event;
   try {
-    event = constructWebhookEvent(req.body, req.headers['stripe-signature'], process.env.STRIPE_WEBHOOK_SECRET);
+    event = constructWebhookEvent(req.rawBody, req.headers['stripe-signature'], process.env.STRIPE_WEBHOOK_SECRET);
   } catch (e) {
     console.error('kyc webhook rejected:', e.message);
     return res.status(e.code === 'WEBHOOK_SECRET_MISSING' ? 503 : 400).json({ error: e.code || 'webhook_invalid', message: e.message });
