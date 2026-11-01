@@ -61,10 +61,61 @@ function getCardPolicy(card) {
 }
 
 function requireKYC() {
-  // Trulioo + FINTRAC + RPAA
-  const err = new Error('Reloadable open-loop >= $1000 requires Trulioo KYC + FINTRAC MSB reporting + RPAA registration');
+  // FINTRAC MSB + RPAA are program-level registrations; the *identity check*
+  // itself now runs on Stripe Identity (see /api/v1/kyc). Trulioo remains an
+  // accepted alternative source: KYC_PROVIDER=trulioo honors a 'verified'
+  // row it recorded.
+  const provider = (process.env.KYC_PROVIDER || 'stripe_identity').toLowerCase();
+  const err = new Error(
+    provider === 'trulioo'
+      ? 'Reloadable open-loop >= $1000 requires Trulioo KYC + FINTRAC MSB reporting + RPAA registration'
+      : 'Reloadable open-loop >= $1000 requires identity verification (start at /kyc/?reference=<email>) + FINTRAC MSB reporting + RPAA registration'
+  );
   err.code = 'FINTRAC_KYC_REQUIRED';
+  err.kyc_start_url = '/kyc/?reference=' + encodeURIComponent(arguments[0] && arguments[0].reference || '');
   throw err;
+}
+
+async function requireKYCVerified(pool, reference) {
+  if (!reference || typeof reference !== 'string') {
+    const e = new Error('Reloadable cards require the holder identity: pass recipient.email');
+    e.code = 'FINTRAC_KYC_REQUIRED';
+    throw e;
+  }
+  const { rows } = await pool.query('SELECT * FROM customers WHERE email=$1', [reference.toLowerCase()]).catch(() => ({ rows: [] }));
+  const provider = (rows[0] && rows[0].kyc_provider) || (process.env.KYC_PROVIDER || 'stripe_identity').toLowerCase();
+
+  if (rows[0] && rows[0].kyc_status === 'verified') return rows[0]; // e.g. Trulioo-recorded
+  if (provider !== 'stripe_identity' || !rows[0]) requireKYC({ reference });
+
+  // The Stripe Identity decision is authoritative: pull it from Stripe right
+  // now (webhook lag / missed deliveries cannot be spoofed from the client).
+  const { createVerificationSession: _create, retrieveVerificationSession, constructWebhookEvent: _hook } = require('./stripe');
+  let session;
+  try {
+    session = await retrieveVerificationSession(rows[0].stripe_session_id);
+  } catch (e) {
+    if (e.code === 'IDENTITY_NOT_ENABLED') {
+      const err = new Error('Stripe Identity is not enabled on this Stripe account yet - an admin must submit https://dashboard.stripe.com/identity/application once');
+      err.code = 'IDENTITY_NOT_ENABLED';
+      throw err;
+    }
+    throw e;
+  }
+  if (session.status !== 'verified') {
+    const err = new Error(`Identity verification for ${reference} is '${session.status}', not verified - reloadable issuance blocked`);
+    err.code = 'FINTRAC_KYC_REQUIRED';
+    err.kyc_status = session.status;
+    err.kyc_start_url = '/kyc/?reference=' + encodeURIComponent(reference);
+    throw err;
+  }
+  const name = [session.verified_outputs && session.verified_outputs.first_name, session.verified_outputs && session.verified_outputs.last_name]
+    .filter(Boolean).join(' ');
+  await pool.query(
+    `UPDATE customers SET kyc_status='verified', kyc_provider='stripe_identity', kyc_verified_name=$2, kyc_verified_at=NOW(), updated_at=NOW() WHERE email=$1`,
+    [reference.toLowerCase(), name || null]
+  );
+  return { email: reference.toLowerCase(), kyc_status: 'verified', kyc_provider: 'stripe_identity' };
 }
 
 async function issueOpenLoopCard({ pool, merchant_id, amount_cad, network, type, recipient, idemKey }) {
@@ -83,12 +134,14 @@ async function issueOpenLoopCard({ pool, merchant_id, amount_cad, network, type,
     // Proceed without KYC
   } else {
     // Reloadable >= $1000
-    // Trulioo KYC + FINTRAC reporting mandatory
-    // RPAA registration required
-    const { rows } = await pool.query('SELECT kyc_status FROM customers WHERE email=$1', [recipient?.email ?? null]).catch(()=>({rows:[]}));
-    if (!rows[0] || rows[0].kyc_status !== 'verified') {
-      requireKYC();
-    }
+    // FINTRAC KYC + FINTRAC reporting + RPAA: identity check runs on Stripe
+    // Identity (KYC_PROVIDER=trulioo switches back to the Trulioo path).
+    await requireKYCVerified(pool, recipient?.email);
+    await pool.query(
+      `INSERT INTO customers (email, kyc_status, kyc_provider) VALUES ($1,'pending','stripe_identity')
+       ON CONFLICT (email) DO NOTHING`,
+      [String(recipient.email).toLowerCase()]
+    ).catch(() => {});
   }
 
   // Processor call (Thredd mock)

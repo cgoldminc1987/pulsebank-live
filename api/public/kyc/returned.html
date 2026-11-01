@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PulseBank — Verification received</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+         background:#0a1211; color:#e6f2f1; font:16px/1.5 -apple-system, 'Segoe UI', Roboto, sans-serif; padding:24px; }
+  .card { width:100%; max-width:420px; background:#0f1a19; border:1px solid #1e2f2d; border-radius:16px; padding:28px; text-align:center; }
+  .icon { font-size:44px; }
+  h1 { font-size:19px; margin:10px 0 6px; }
+  p { color:#9db8b5; font-size:14px; margin:0 0 12px; }
+  #detail { font-size:13px; color:#c7dedb; margin-top:6px; }
+  .badge { display:inline-block; margin-top:14px; padding:6px 14px; border-radius:999px; font-size:13px; font-weight:600; }
+  .b-ok { background:#0f2e2a; color:#2dd4bf; border:1px solid #1d5f55; }
+  .b-wait { background:#2e2410; color:#fbbf24; border:1px solid #6b5416; }
+  .b-no { background:#3a1420; color:#fda4af; border:1px solid #7f1d3a; }
+  .spin { display:inline-block; width:14px; height:14px; border:2px solid #2dd4bf; border-top-color:transparent;
+          border-radius:50%; vertical-align:-2px; margin-right:6px; animation:s .8s linear infinite; }
+  @keyframes s { to { transform:rotate(360deg); } }
+  .fine { color:#7a9491; font-size:12px; margin-top:18px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="icon">🪪</div>
+  <h1>Verification received</h1>
+  <p id="lead" class="spin" style="color:#2dd4bf">Checking with Stripe…</p>
+  <div id="detail"></div>
+  <div id="badge"></div>
+  <p class="fine">You can close this page — this result is saved either way.</p>
+</div>
+
+<script>
+var ref = new URLSearchParams(location.search).get('reference');
+var lead = document.getElementById('lead');
+var detail = document.getElementById('detail');
+var badge = document.getElementById('badge');
+
+function show(j) {
+  lead.className = ''; lead.classList.remove('spin');
+  if (j.status === 'verified') {
+    lead.textContent = 'You’re verified.';
+    badge.innerHTML = '<span class="badge b-ok">Verified ✓</span>';
+    detail.textContent = j.verified_name ? 'Verified as ' + j.verified_name + '.' : 'Your reloadable card can now be issued.';
+  } else if (j.status === 'processing') {
+    lead.innerHTML = '<span class="spin"></span>Still processing — this page keeps checking.';
+    badge.innerHTML = '<span class="badge b-wait">Processing…</span>';
+  } else if (j.status === 'requires_input') {
+    lead.textContent = 'One more step needed.';
+    badge.innerHTML = '<span class="badge b-no">Action needed</span>';
+    detail.innerHTML = (j.last_error && j.last_error.reason ? escape_(j.last_error.reason) + '. ' : '') +
+      '<a style="color:#2dd4bf" href="/kyc/?reference=' + encodeURIComponent(ref || '') + '">Try again</a>';
+  } else {
+    lead.textContent = 'Verification is not complete.';
+    badge.innerHTML = '<span class="badge b-no">Not verified</span>';
+    detail.innerHTML = '<a style="color:#2dd4bf" href="/kyc/?reference=' + encodeURIComponent(ref || '') + '">Start over</a>';
+  }
+}
+
+function escape_(s) { var d = document.createElement('div'); d.textContent = String(s); return d.innerHTML; }
+
+async function poll() {
+  try {
+    var r = await fetch('/api/v1/kyc/session/' + encodeURIComponent(ref) + '/refresh');
+    if (r.status === 404) { show({ status: 'requires_input' }); return; }
+    var j = await r.json();
+    show(j);
+    if (j.status === 'processing') setTimeout(poll, 4000);
+  } catch (e) {
+    lead.className = ''; lead.textContent = 'Could not reach the server — check back shortly.';
+  }
+}
+
+if (!ref) {
+  lead.className = ''; lead.textContent = 'Missing verification reference.';
+} else {
+  poll();
+}
+</script>
+</body>
+</html>

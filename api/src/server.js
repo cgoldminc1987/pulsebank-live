@@ -11,10 +11,12 @@ const squareRouter = require('./routes/square');
 const shopifyRouter = require('./routes/shopify');
 const refundsRouter = require('./routes/refunds');
 const lithicRouter = require('./routes/lithic');
+const kycRouter = require('./routes/kyc');
 const healthRouter = require('./routes/health');
 
 const app = express();
 app.use(express.json());
+const { join } = require('path');
 
 // CORS: let the merchant terminal call this API from a browser.
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || 'https://pulsebank-terminal.onrender.com').split(',').map(s => s.trim()).filter(Boolean);
@@ -74,9 +76,14 @@ app.use('/api/v1/square', squareRouter);
 app.use('/api/v1/shopify', shopifyRouter);
 app.use('/api/v1/refunds', refundsRouter);
 app.use('/api/v1/lithic', lithicRouter);
+app.use('/api/v1/kyc', kycRouter);
+
+// KYC applicant pages (static, no build step)
+const kycStatic = express.static(join(__dirname, '..', 'public', 'kyc'), { extensions: ['html'] });
+app.use('/kyc', kycStatic);
 
 // 404 as JSON, listing what this host serves
-app.use((req,res)=> res.status(404).json({ error:'not found', path:req.path, endpoints:[ 'GET /api/v1/health','POST /api/v1/cards/issue','POST /api/v1/cards/:id/redeem','POST /api/v1/cards/:id/void','GET /api/v1/cards/:id/balance','GET /api/v1/cards/balance/:barcode','POST /api/v1/cards/:id/wallet','POST /api/v1/barcodes/register','DELETE /api/v1/barcodes/:barcode','GET /api/v1/merchants/:id/settlement','POST /api/v1/distributor/issue','POST /api/v1/square/redeem','POST /api/v1/shopify/redeem','POST /api/v1/refunds','GET /api/v1/refunds/:id','POST /api/v1/lithic/cards','GET /api/v1/lithic/status' ] }));
+app.use((req,res)=> res.status(404).json({ error:'not found', path:req.path, endpoints:[ 'GET /api/v1/health','POST /api/v1/cards/issue','POST /api/v1/cards/:id/redeem','POST /api/v1/cards/:id/void','GET /api/v1/cards/:id/balance','GET /api/v1/cards/balance/:barcode','POST /api/v1/cards/:id/wallet','POST /api/v1/barcodes/register','DELETE /api/v1/barcodes/:barcode','GET /api/v1/merchants/:id/settlement','POST /api/v1/distributor/issue','POST /api/v1/square/redeem','POST /api/v1/shopify/redeem','POST /api/v1/refunds','GET /api/v1/refunds/:id','POST /api/v1/lithic/cards','GET /api/v1/lithic/status','POST /api/v1/kyc/session','GET /api/v1/kyc/session/:reference','GET /api/v1/kyc/session/:reference/refresh','GET /api/v1/kyc/status','GET /kyc (applicant page)' ] }));
 
 // BC compliance guard
 app.use((err,req,res,next)=>{
@@ -84,7 +91,13 @@ app.use((err,req,res,next)=>{
     return res.status(451).json({error:'BC BPCPA: Closed-loop gift cards cannot have expiry', law_ref:'BPCPA s.56'});
   }
   if(err.code==='FINTRAC_KYC_REQUIRED'){
-    return res.status(409).json({error:err.message, fintrac:'MSB + RPAA + Trulioo KYC required for reloadable >=$1000'});
+    return res.status(409).json({
+      error:err.message,
+      fintrac:'MSB + RPAA + identity verification required for reloadable >=$1000',
+      kyc_provider:'stripe_identity',
+      kyc_start_url:err.kyc_start_url || null,
+      kyc_status:err.kyc_status || null
+    });
   }
   console.error(err);
   res.status(500).json({error: err.message});

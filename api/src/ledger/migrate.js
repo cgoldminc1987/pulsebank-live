@@ -22,19 +22,6 @@ async function migrate(){
   ALTER TABLE cards ADD COLUMN IF NOT EXISTS kyc_status TEXT;
   CREATE TABLE IF NOT EXISTS customers (email TEXT PRIMARY KEY, kyc_status TEXT DEFAULT 'pending', kyc_provider TEXT, created_at TIMESTAMPTZ DEFAULT NOW());
   `);
-  // Barcode registration: map external / distributor / printed barcodes onto PulseBank cards
-  // so POS scans and balance lookups resolve without re-issuing.
-  await pool.query(`
-  CREATE TABLE IF NOT EXISTS barcode_aliases (
-    barcode TEXT PRIMARY KEY,
-    card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
-    merchant_id TEXT REFERENCES merchants(id),
-    registered_by TEXT DEFAULT 'terminal',
-    registered_at TIMESTAMPTZ DEFAULT NOW(),
-    note TEXT
-  );
-  CREATE INDEX IF NOT EXISTS barcode_aliases_card_idx ON barcode_aliases(card_id);
-  `);
   // Refunds: return unredeemed store credit to the original payment method
   // (Stripe refund to the funding credit card, or Stripe Connect transfer for a bank-account payout)
   await pool.query(`
@@ -43,6 +30,36 @@ async function migrate(){
   CREATE TABLE IF NOT EXISTS refunds (id UUID PRIMARY KEY, card_id TEXT REFERENCES cards(id), merchant_id TEXT, amount_cad INT, destination TEXT CHECK (destination IN ('credit_card','bank_account')), status TEXT CHECK (status IN ('pending','pending_payout','succeeded','failed','blocked')), processor_reference TEXT, stripe_payment_intent_id TEXT, idempotency_key TEXT UNIQUE, reason TEXT, error TEXT, completed_at TIMESTAMPTZ, created_at TIMESTAMPTZ DEFAULT NOW());
   ALTER TABLE ledger_entries DROP CONSTRAINT IF EXISTS ledger_entries_type_check;
   ALTER TABLE ledger_entries ADD CONSTRAINT ledger_entries_type_check CHECK (type IN ('ISSUE','REDEEM','VOID','SETTLEMENT','FLOAT_INTEREST','BREAKAGE','REFUND'));
+  `);
+  // KYC (identity verification) via Stripe Identity.
+  // The webhook is the source of truth; GET /refresh covers missed deliveries.
+  await pool.query(`
+  CREATE TABLE IF NOT EXISTS kyc_verifications (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    session_id TEXT UNIQUE NOT NULL,
+    reference TEXT NOT NULL,
+    email TEXT,
+    status TEXT NOT NULL DEFAULT 'requires_input',
+    livemode BOOLEAN DEFAULT false,
+    client_secret TEXT,
+    account_type TEXT,
+    verified_name TEXT,
+    verified_country TEXT,
+    verified_at TIMESTAMPTZ,
+    last_error JSONB,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS kyc_verifications_reference_idx ON kyc_verifications (reference, created_at DESC);
+  `);
+  // Gate-table enrichment: verified name/country for audit, stripe_session_id
+  // so issuance can re-confirm the vendor decision at issue time.
+  await pool.query(`
+  ALTER TABLE customers ADD COLUMN IF NOT EXISTS stripe_session_id TEXT;
+  ALTER TABLE customers ADD COLUMN IF NOT EXISTS kyc_verified_name TEXT;
+  ALTER TABLE customers ADD COLUMN IF NOT EXISTS kyc_verified_country TEXT;
+  ALTER TABLE customers ADD COLUMN IF NOT EXISTS kyc_verified_at TIMESTAMPTZ;
+  ALTER TABLE customers ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
   `);
   console.log('Migrated - BC compliant tables ready');
   process.exit(0);
