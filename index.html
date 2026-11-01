@@ -1760,16 +1760,17 @@ Error generating stack: `+u.message+`
   function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
   function fields() {
     var inputs = [].slice.call(document.querySelectorAll('input, select')).filter(function (e) { return e.offsetParent !== null; });
-    var amount, bin, merchant, card, stripe, agg;
+    var amount, bin, merchant, card, stripe, agg, email;
     inputs.forEach(function (e) {
       if (e.id === 'pb-aggregator') agg = e;
       else if (e.id === 'pb-stripe-field') stripe = e;
+      else if (e.id === 'pb-recipient-email') email = e;
       else if (e.tagName === 'SELECT') bin = e;
       else if (e.type === 'number') amount = e;
       else if (/^mer_/.test(e.value || '')) merchant = e;
       else if (/^(card_|\{\{)/.test(e.value || '')) card = e;
     });
-    return { amount: amount, bin: bin, merchant: merchant, card: card, stripe: stripe, agg: agg };
+    return { amount: amount, bin: bin, merchant: merchant, card: card, stripe: stripe, agg: agg, email: email };
   }
   function show(ok, title, body) {
     var log = document.getElementById(logId); if (!log) return;
@@ -1801,6 +1802,8 @@ Error generating stack: `+u.message+`
       var f = fields();
       var body = { merchant_id: (f.merchant && f.merchant.value) || 'mer_cumberland_coffee', amount_cad: num(f.amount && f.amount.value, 5000), type: 'mall_open_loop', delivery: 'email' };
       if (f.bin) body.network = f.bin.value === '511340' ? 'mastercard' : 'visa';
+      var em = ((f.email && f.email.value) || '').trim();
+      if (em && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) body.recipient = { email: em };
       send('POST', '/cards/issue', body, 'Issue card', function (r) {
         try { var j = JSON.parse(r.t); window.PB_LAST = { id: j.id, barcode: j.barcode, pi: j.stripe_payment_intent_id || (j.payment && j.payment.stripe_payment_intent_id) || null }; if (j.id && f.card) f.card.value = j.id; } catch (e) {}
       });
@@ -1860,7 +1863,9 @@ Error generating stack: `+u.message+`
     aggIn.style.cssText = 'flex:1;min-width:110px;padding:8px;border:1px solid #2a3a3a;border-radius:8px;background:#0d1616;color:#e6f2f1;font:500 13px Geist,sans-serif';
     var stripeIn = el('input'); stripeIn.id = 'pb-stripe-field'; stripeIn.placeholder = 'pi_… Stripe payment intent (optional, refunds)';
     stripeIn.style.cssText = 'flex:2;min-width:180px;padding:8px;border:1px solid #2a3a3a;border-radius:8px;background:#0d1616;color:#e6f2f1;font:500 13px Geist,sans-serif';
-    flds.appendChild(aggIn); flds.appendChild(stripeIn);
+    var emailIn = el('input'); emailIn.id = 'pb-recipient-email'; emailIn.type = 'email'; emailIn.placeholder = 'Recipient email (optional, card delivery)';
+    emailIn.style.cssText = 'flex:2;min-width:180px;padding:8px;border:1px solid #2a3a3a;border-radius:8px;background:#0d1616;color:#e6f2f1;font:500 13px Geist,sans-serif';
+    flds.appendChild(aggIn); flds.appendChild(stripeIn); flds.appendChild(emailIn);
     panel.appendChild(flds);
     [
       ['Issue card', 'issue'],
