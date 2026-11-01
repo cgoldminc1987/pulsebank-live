@@ -120,6 +120,11 @@ router.post('/session', async (req, res, next) => {
       reference,
     });
   } catch (e) {
+    // try-block destructuring is out of scope here: re-read the request body
+    const body = req.body || {};
+    const reference = typeof body.reference === 'string' ? body.reference : undefined;
+    const email = typeof body.email === 'string' ? body.email : undefined;
+    const account_type = body.account_type;
     if (e.code === 'IDENTITY_NOT_ENABLED') {
       if (MANUAL_REVIEW_ENABLED) {
         const prior = await latestByReference(pool, reference).catch(() => null);

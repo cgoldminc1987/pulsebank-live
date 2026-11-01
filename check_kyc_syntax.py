@@ -70,6 +70,16 @@ def main():
     if 'res.status(202)' not in kyc:
         print('kyc.js: 202 manual_review fallback missing')
         ok = False
+
+    # The POST /session catch block must not rely on try-block locals
+    # (reference/email/account_type) - they are out of scope there and crash
+    # with ReferenceError on the first request. It must re-read req.body.
+    catchm = re.search(r'router\.post\(\'/session\'.*?\} catch \(e\) \{(.*?)\n  \}\);', kyc, re.S)
+    if catchm and 'IDENTITY_NOT_ENABLED' in catchm.group(1):
+        if 'const body = req.body' not in catchm.group(1):
+            print('kyc.js: /session catch block uses try-scoped locals without re-reading req.body')
+            ok = False
+
     if 'DROP NOT NULL' not in mig:
         print('migrate.js: session_id DROP NOT NULL alteration missing')
         ok = False
