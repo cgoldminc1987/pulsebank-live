@@ -1760,14 +1760,16 @@ Error generating stack: `+u.message+`
   function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
   function fields() {
     var inputs = [].slice.call(document.querySelectorAll('input, select')).filter(function (e) { return e.offsetParent !== null; });
-    var amount, bin, merchant, card;
+    var amount, bin, merchant, card, stripe, agg;
     inputs.forEach(function (e) {
-      if (e.tagName === 'SELECT') bin = e;
+      if (e.id === 'pb-aggregator') agg = e;
+      else if (e.id === 'pb-stripe-field') stripe = e;
+      else if (e.tagName === 'SELECT') bin = e;
       else if (e.type === 'number') amount = e;
       else if (/^mer_/.test(e.value || '')) merchant = e;
       else if (/^(card_|\{\{)/.test(e.value || '')) card = e;
     });
-    return { amount: amount, bin: bin, merchant: merchant, card: card };
+    return { amount: amount, bin: bin, merchant: merchant, card: card, stripe: stripe, agg: agg };
   }
   function show(ok, title, body) {
     var log = document.getElementById(logId); if (!log) return;
@@ -1800,13 +1802,19 @@ Error generating stack: `+u.message+`
       var body = { merchant_id: (f.merchant && f.merchant.value) || 'mer_cumberland_coffee', amount_cad: num(f.amount && f.amount.value, 5000), type: 'mall_open_loop', delivery: 'email' };
       if (f.bin) body.network = f.bin.value === '511340' ? 'mastercard' : 'visa';
       send('POST', '/cards/issue', body, 'Issue card', function (r) {
-        try { var j = JSON.parse(r.t); window.PB_LAST = { id: j.id, barcode: j.barcode }; } catch (e) {}
+        try { var j = JSON.parse(r.t); window.PB_LAST = { id: j.id, barcode: j.barcode, pi: j.stripe_payment_intent_id || (j.payment && j.payment.stripe_payment_intent_id) || null }; if (j.id && f.card) f.card.value = j.id; } catch (e) {}
       });
     },
     redeem: function () {
       var f = fields();
-      var bc = (window.PB_LAST && window.PB_LAST.barcode) || (f.card && f.card.value) || '';
-      send('POST', '/square/redeem', { barcode: bc, amount_cad: num(f.amount && f.amount.value, 500), merchant_id: (f.merchant && f.merchant.value) || 'mer_cumberland_coffee' }, 'Redeem (POS)', null);
+      var amt = num(f.amount && f.amount.value, 500);
+      var cid = (f.card && f.card.value && f.card.value.trim()) || '';
+      if (/^card_/.test(cid)) {
+        send('POST', '/cards/' + encodeURIComponent(cid) + '/redeem', { amount_cad: amt }, 'Redeem (card)', null);
+      } else {
+        var bc = (window.PB_LAST && window.PB_LAST.barcode) || '';
+        send('POST', '/square/redeem', { barcode: bc, amount_cad: amt, merchant_id: (f.merchant && f.merchant.value) || 'mer_cumberland_coffee' }, 'Redeem (POS)', null);
+      }
     },
     balance: function () {
       send('GET', '/cards/' + encodeURIComponent(cardId()) + '/balance', null, 'Balance', null);
@@ -1821,11 +1829,15 @@ Error generating stack: `+u.message+`
     },
     refund: function () {
       var f = fields();
-      send('POST', '/refunds', { card_id: cardId(), amount_cad: num(f.amount && f.amount.value, 500), destination: 'original' }, 'Refund', null);
+      var body = { card_id: cardId(), amount_cad: num(f.amount && f.amount.value, 500) };
+      var pi = ((f.stripe && f.stripe.value) || '').trim() || (window.PB_LAST && window.PB_LAST.pi) || '';
+      if (pi) { body.destination = 'credit_card'; body.stripe_payment_intent_id = pi; } else { body.destination = 'original'; }
+      send('POST', '/refunds', body, 'Refund', null);
     },
     distributor: function () {
       var f = fields();
-      send('POST', '/distributor/issue', { aggregator: 'givex', amount_cad: num(f.amount && f.amount.value, 5000), merchant_id: (f.merchant && f.merchant.value) || 'mer_cumberland_coffee' }, 'Distributor issue (givex)', null);
+      var aggSel = f.agg ? f.agg.value : 'givex';
+      send('POST', '/distributor/issue', { aggregator: aggSel, amount_cad: num(f.amount && f.amount.value, 5000), merchant_id: (f.merchant && f.merchant.value) || 'mer_cumberland_coffee' }, 'Distributor issue (' + aggSel + ')', null);
     },
     health: function () {
       send('GET', '/health', null, 'Health', null);
@@ -1842,6 +1854,14 @@ Error generating stack: `+u.message+`
     h.style.cssText = 'font:600 11px "Geist Mono",monospace;letter-spacing:.08em;color:#0b7d78;margin-bottom:8px';
     panel.appendChild(h);
     var row = el('div'); row.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px';
+    var flds = el('div'); flds.style.cssText = 'display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap';
+    var aggIn = el('select'); aggIn.id = 'pb-aggregator';
+    ['givex', 'datacandy', 'tango'].forEach(function (a) { var o = el('option', null, a); o.value = a; aggIn.appendChild(o); });
+    aggIn.style.cssText = 'flex:1;min-width:110px;padding:8px;border:1px solid #2a3a3a;border-radius:8px;background:#0d1616;color:#e6f2f1;font:500 13px Geist,sans-serif';
+    var stripeIn = el('input'); stripeIn.id = 'pb-stripe-field'; stripeIn.placeholder = 'pi_… Stripe payment intent (optional, refunds)';
+    stripeIn.style.cssText = 'flex:2;min-width:180px;padding:8px;border:1px solid #2a3a3a;border-radius:8px;background:#0d1616;color:#e6f2f1;font:500 13px Geist,sans-serif';
+    flds.appendChild(aggIn); flds.appendChild(stripeIn);
+    panel.appendChild(flds);
     [
       ['Issue card', 'issue'],
       ['Redeem (POS)', 'redeem'],
