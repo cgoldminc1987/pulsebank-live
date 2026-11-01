@@ -12,6 +12,7 @@ const shopifyRouter = require('./routes/shopify');
 const refundsRouter = require('./routes/refunds');
 const lithicRouter = require('./routes/lithic');
 const kycRouter = require('./routes/kyc');
+const stripeRouter = require('./routes/stripe');
 const healthRouter = require('./routes/health');
 
 const app = express();
@@ -77,13 +78,14 @@ app.use('/api/v1/shopify', shopifyRouter);
 app.use('/api/v1/refunds', refundsRouter);
 app.use('/api/v1/lithic', lithicRouter);
 app.use('/api/v1/kyc', kycRouter);
+app.use('/api/v1/stripe', stripeRouter);
 
 // KYC applicant pages (static, no build step)
 const kycStatic = express.static(join(__dirname, '..', 'public', 'kyc'), { extensions: ['html'] });
 app.use('/kyc', kycStatic);
 
 // 404 as JSON, listing what this host serves
-app.use((req,res)=> res.status(404).json({ error:'not found', path:req.path, endpoints:[ 'GET /api/v1/health','POST /api/v1/cards/issue','POST /api/v1/cards/:id/redeem','POST /api/v1/cards/:id/void','GET /api/v1/cards/:id/balance','GET /api/v1/cards/balance/:barcode','POST /api/v1/cards/:id/wallet','POST /api/v1/barcodes/register','DELETE /api/v1/barcodes/:barcode','GET /api/v1/merchants/:id/settlement','POST /api/v1/distributor/issue','POST /api/v1/square/redeem','POST /api/v1/shopify/redeem','POST /api/v1/refunds','GET /api/v1/refunds/:id','POST /api/v1/lithic/cards','GET /api/v1/lithic/status','POST /api/v1/kyc/session','GET /api/v1/kyc/session/:reference','GET /api/v1/kyc/session/:reference/refresh','GET /api/v1/kyc/status','GET /kyc (applicant page)' ] }));
+app.use((req,res)=> res.status(404).json({ error:'not found', path:req.path, endpoints:[ 'GET /api/v1/health','POST /api/v1/cards/issue','POST /api/v1/cards/:id/redeem','POST /api/v1/cards/:id/void','GET /api/v1/cards/:id/balance','GET /api/v1/cards/balance/:barcode','POST /api/v1/cards/:id/wallet','POST /api/v1/barcodes/register','DELETE /api/v1/barcodes/:barcode','GET /api/v1/merchants/:id/settlement','POST /api/v1/distributor/issue','POST /api/v1/square/redeem','POST /api/v1/shopify/redeem','POST /api/v1/refunds','GET /api/v1/refunds/:id','POST /api/v1/lithic/cards','GET /api/v1/lithic/status','POST /api/v1/kyc/session','GET /api/v1/kyc/session/:reference','GET /api/v1/kyc/session/:reference/refresh','GET /api/v1/kyc/status','POST /api/v1/stripe/webhook','GET /api/v1/stripe/orders/:sessionId','GET /kyc (applicant page)' ] }));
 
 // BC compliance guard
 app.use((err,req,res,next)=>{

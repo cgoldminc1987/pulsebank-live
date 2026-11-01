@@ -61,6 +61,28 @@ async function migrate(){
   ALTER TABLE customers ADD COLUMN IF NOT EXISTS kyc_verified_at TIMESTAMPTZ;
   ALTER TABLE customers ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
   `);
+  // Consumer storefront fulfillment: buy.stripe.com Payment Links -> cards.
+  // POST /api/v1/stripe/webhook issues the closed-loop card when the signed
+  // checkout.session.completed event lands (one card per Stripe event id).
+  await pool.query(`
+  CREATE TABLE IF NOT EXISTS stripe_orders (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    stripe_event_id TEXT UNIQUE NOT NULL,
+    stripe_session_id TEXT UNIQUE NOT NULL,
+    payment_intent TEXT,
+    amount_cad INT NOT NULL,
+    currency TEXT DEFAULT 'cad',
+    customer_email TEXT,
+    card_id TEXT,
+    barcode TEXT,
+    status TEXT NOT NULL DEFAULT 'processing',
+    fulfilled_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS stripe_orders_session_idx ON stripe_orders (stripe_session_id);
+  INSERT INTO merchants (id, name, city) VALUES ('mer_pulsebank_online','PulseBank Online','Courtenay') ON CONFLICT DO NOTHING;
+  `);
   console.log('Migrated - BC compliant tables ready');
   process.exit(0);
 }
