@@ -139,6 +139,8 @@ async function retrieveVerificationSession(sessionId) {
 
 // Manual signature check (no SDK dependency): Stripe-Signature carries
 // t=<unix ts>,v1=<HMAC-SHA256(secret, "<ts>.<rawBody>")>
+// STRIPE_WEBHOOK_SECRET may hold one secret or several comma-separated
+// (e.g. KYC endpoint + gift-card fulfillment endpoint on the same account).
 function constructWebhookEvent(rawBody, signatureHeader, secret) {
   if (!secret) {
     const e = new Error('STRIPE_WEBHOOK_SECRET not configured - refusing unsigned webhook');
@@ -157,11 +159,13 @@ function constructWebhookEvent(rawBody, signatureHeader, secret) {
     })
   );
   const timestamp = parts.t;
-  const expected = crypto.createHmac('sha256', secret).update(`${timestamp}.${rawBody.toString('utf8')}`).digest('hex');
   const given = String(parts.v1 || '');
-  const a = Buffer.from(expected, 'hex');
   const b = Buffer.from(given, 'hex');
-  const ok = a.length === b.length && crypto.timingSafeEqual(a, b);
+  const ok = String(secret).split(',').map((s) => s.trim()).filter(Boolean).some((cand) => {
+    const expected = crypto.createHmac('sha256', cand).update(`${timestamp}.${rawBody.toString('utf8')}`).digest('hex');
+    const a = Buffer.from(expected, 'hex');
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
+  });
   const fresh = timestamp && Math.abs(Date.now() / 1000 - Number(timestamp)) < 300;
   if (!ok) {
     const e = new Error('webhook signature mismatch');
