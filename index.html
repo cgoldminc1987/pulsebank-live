@@ -1838,7 +1838,7 @@ Error generating stack: `+u.message+`
     if (!host) return false;
     var panel = el('div');
     panel.style.cssText = 'margin:14px 4px;padding:12px;border:1px solid rgba(41,159,153,.45);border-radius:14px;background:rgba(41,159,153,.06)';
-    var h = el('div', null, 'ACTIONS — ' + API.replace(/^https:\\/\\//, ''));
+    var h = el('div', null, 'ACTIONS — ' + API.slice(8));
     h.style.cssText = 'font:600 11px "Geist Mono",monospace;letter-spacing:.08em;color:#0b7d78;margin-bottom:8px';
     panel.appendChild(h);
     var row = el('div'); row.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px';
