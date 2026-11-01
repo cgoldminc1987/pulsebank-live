@@ -1782,27 +1782,53 @@ Error generating stack: `+u.message+`
       method: method,
       headers: body ? { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'ui-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8) } : undefined,
       body: body ? JSON.stringify(body) : undefined
-    }).then(function (r) { return r.text().then(function (t) { return { s: r.status, t: t }; }); })
+    }).then(function (r) {
+        var ct = r.headers.get('content-type') || '';
+        if (ct.indexOf('pkpass') > -1) return r.arrayBuffer().then(function (b) { return { s: r.status, t: '<binary pkpass — ' + b.byteLength + ' bytes>' } });
+        return r.text().then(function (t) { return { s: r.status, t: t }; });
+      })
       .then(function (r) { show(r.s < 400, title + ' — ' + r.s + ' · ' + (Date.now() - t0) + 'ms', r.t); if (cb) cb(r); })
       .catch(function (e) { show(false, title + ' — network', String(e)); });
   }
   function num(v, dflt) { var n = Math.round(parseFloat(v) * 100); return isFinite(n) && n > 0 ? n : dflt; }
   function cardId() { var c = fields().card; return (c && c.value && c.value.trim()) || 'card_' + Date.now(); }
 
+  window.PB_LAST = null;
   window.PB_ACTIONS = {
     issue: function () {
       var f = fields();
-      var type = (location.hash || '') === '#reloadable' || (document.body.innerText.indexOf('reloadable KYC') > -1 && document.querySelector('[aria-pressed="true"],.active') && false) ? 'mall_open_loop' : 'mall_open_loop';
-      var body = { merchant_id: (f.merchant && f.merchant.value) || 'mer_cumberland_coffee', amount_cad: num(f.amount && f.amount.value, 5000), type: type, delivery: 'email' };
+      var body = { merchant_id: (f.merchant && f.merchant.value) || 'mer_cumberland_coffee', amount_cad: num(f.amount && f.amount.value, 5000), type: 'mall_open_loop', delivery: 'email' };
       if (f.bin) body.network = f.bin.value === '511340' ? 'mastercard' : 'visa';
-      send('POST', '/cards/issue', body, 'Issue card', null);
+      send('POST', '/cards/issue', body, 'Issue card', function (r) {
+        try { var j = JSON.parse(r.t); window.PB_LAST = { id: j.id, barcode: j.barcode }; } catch (e) {}
+      });
+    },
+    redeem: function () {
+      var f = fields();
+      var bc = (window.PB_LAST && window.PB_LAST.barcode) || (f.card && f.card.value) || '';
+      send('POST', '/square/redeem', { barcode: bc, amount_cad: num(f.amount && f.amount.value, 500), merchant_id: (f.merchant && f.merchant.value) || 'mer_cumberland_coffee' }, 'Redeem (POS)', null);
     },
     balance: function () {
       send('GET', '/cards/' + encodeURIComponent(cardId()) + '/balance', null, 'Balance', null);
     },
+    settlement: function () {
+      var f = fields();
+      send('GET', '/merchants/' + encodeURIComponent((f.merchant && f.merchant.value) || 'mer_cumberland_coffee') + '/settlement', null, 'Settlement', null);
+    },
     wallet: function () {
-      var id = cardId();
-      send('POST', '/cards/' + encodeURIComponent(id) + '/wallet', null, 'Wallet pass', null);
+      var f = fields();
+      send('POST', '/cards/' + encodeURIComponent(cardId()) + '/wallet', { merchant_name: (f.merchant && f.merchant.value) || 'PulseBank' }, 'Wallet pass', null);
+    },
+    refund: function () {
+      var f = fields();
+      send('POST', '/refunds', { card_id: cardId(), amount_cad: num(f.amount && f.amount.value, 500), destination: 'original' }, 'Refund', null);
+    },
+    distributor: function () {
+      var f = fields();
+      send('POST', '/distributor/issue', { aggregator: 'givex', amount_cad: num(f.amount && f.amount.value, 5000), merchant_id: (f.merchant && f.merchant.value) || 'mer_cumberland_coffee' }, 'Distributor issue (givex)', null);
+    },
+    health: function () {
+      send('GET', '/health', null, 'Health', null);
     }
   };
 
@@ -1818,8 +1844,13 @@ Error generating stack: `+u.message+`
     var row = el('div'); row.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px';
     [
       ['Issue card', 'issue'],
+      ['Redeem (POS)', 'redeem'],
       ['Balance', 'balance'],
-      ['Wallet pass', 'wallet']
+      ['Settlement', 'settlement'],
+      ['Wallet pass', 'wallet'],
+      ['Refund', 'refund'],
+      ['Distributor', 'distributor'],
+      ['Health', 'health']
     ].forEach(function (b) {
       var btn = el('button', null, b[0]);
       btn.style.cssText = 'flex:1 1 30%;padding:10px 8px;border:0;border-radius:10px;background:#299f99;color:#fff;font:600 13px Geist,sans-serif;cursor:pointer';
