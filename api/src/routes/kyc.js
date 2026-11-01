@@ -132,11 +132,12 @@ router.post('/session', async (req, res, next) => {
           try {
             await pool.query(
               `INSERT INTO kyc_verifications (reference, email, status, account_type, livemode)
-               VALUES ($1,$2,$3,$4,false)
-               ON CONFLICT (reference) DO NOTHING`,
+               VALUES ($1,$2,$3,$4,false)`,
               [reference, email || null, MANUAL_REVIEW, String(account_type || 'reloadable_card').slice(0, 60)]
             );
-          } catch (_) { /* best-effort */ }
+          } catch (err) {
+            console.error('kyc manual_review insert failed:', err && err.message);
+          }
         }
         return res.status(202).json({
           status: MANUAL_REVIEW,
