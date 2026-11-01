@@ -86,6 +86,22 @@ async function requireKYCVerified(pool, reference) {
   const provider = (rows[0] && rows[0].kyc_provider) || (process.env.KYC_PROVIDER || 'stripe_identity').toLowerCase();
 
   if (rows[0] && rows[0].kyc_status === 'verified') return rows[0]; // e.g. Trulioo-recorded
+
+  // The KYC pipeline state lives in kyc_verifications (manual_review rows have
+  // no Stripe session and no customers row yet). Surface it on the gate
+  // response instead of a bare null - issuance stays blocked either way.
+  const vq = await pool.query(
+    'SELECT status FROM kyc_verifications WHERE reference=$1 ORDER BY created_at DESC LIMIT 1',
+    [reference]
+  ).catch(() => ({ rows: [] }));
+  if (vq.rows[0] && vq.rows[0].status === 'manual_review') {
+    const err = new Error(`Identity verification for ${reference} is queued for manual review (Stripe Identity is not enabled on this Stripe account yet) - reloadable issuance stays blocked until an admin approves it`);
+    err.code = 'FINTRAC_KYC_REQUIRED';
+    err.kyc_status = 'manual_review';
+    err.kyc_start_url = '/kyc/?reference=' + encodeURIComponent(reference);
+    throw err;
+  }
+
   if (provider !== 'stripe_identity' || !rows[0]) requireKYC({ reference });
 
   // The Stripe Identity decision is authoritative: pull it from Stripe right
