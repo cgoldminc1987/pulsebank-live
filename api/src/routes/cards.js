@@ -8,7 +8,7 @@ const { generateGiftCardPass } = require('../wallet/apple');
 
 const IssueSchema = z.object({
   merchant_id: z.string(),
-  amount_cad: z.number().int().min(100).max(50000), // $1 - $500 in cents
+  amount_cad: z.number().int().min(100).max(99900), // $1 - $999 in cents
   type: z.enum(['closed_loop','mall_open_loop']).default('closed_loop'),
   delivery: z.enum(['email','sms','apple_wallet','google_pay']).default('email'),
   recipient: z.object({ email: z.string().email().optional(), phone: z.string().optional(), first_name: z.string().optional() }).optional(),

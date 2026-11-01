@@ -12,7 +12,7 @@ const { refundToCreditCard, refundToBankAccount } = require('../adapters/stripe'
 //   destination 'bank_account'-> Stripe Connect transfer to the recipient account, bank payout follows
 const RefundSchema = z.object({
   card_id: z.string(),
-  amount_cad: z.number().int().min(100).max(50000), // cents - mirrors issue limits
+  amount_cad: z.number().int().min(100).max(99900), // cents - mirrors issue limits
   destination: z.enum(['original','credit_card','bank_account','stripe']).default('original'),
   stripe_payment_intent_id: z.string().optional(),
   stripe_account: z.string().optional(), // recipient connected account, overrides STRIPE_CONNECT_ACCOUNT_ID
