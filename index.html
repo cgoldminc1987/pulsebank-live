@@ -1964,5 +1964,12 @@ Error generating stack: `+u.message+`
   var timer = setInterval(function () { tries++; if (mount() || tries > 60) clearInterval(timer); }, 500);
 })();
 </script>
+<div id="paypal-container-NBD8WYXAZLNJQ"></div>
+<script src="https://www.paypal.com/sdk/js?client-id=BAANLWoKs_ZEalzVZen2CV6_dFBVo3ToyJ0QuLdB1_yvy-xtjOHs00DU3nOB1RhyqbWQ1a1ywgXsjsahxk&components=hosted-buttons&disable-funding=venmo&currency=CAD"></script>
+<script>
+  paypal.HostedButtons({
+    hostedButtonId: "NBD8WYXAZLNJQ",
+  }).render("#paypal-container-NBD8WYXAZLNJQ")
+</script>
 </body>
 </html>
