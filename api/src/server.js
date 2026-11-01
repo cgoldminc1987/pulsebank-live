@@ -89,6 +89,7 @@ app.use('/api/v1/plaid', plaidRouter);
 // KYC applicant pages (static, no build step)
 const kycStatic = express.static(join(__dirname, '..', 'public', 'kyc'), { extensions: ['html'] });
 app.use('/kyc', kycStatic);
+app.use('/plaid', express.static(join(__dirname, '..', 'public', 'plaid'), { extensions: ['html'] }));
 
 // 404 as JSON, listing what this host serves
 app.use((req,res)=> res.status(404).json({ error:'not found', path:req.path, endpoints:[ 'GET /api/v1/health','POST /api/v1/cards/issue','POST /api/v1/cards/:id/redeem','POST /api/v1/cards/:id/void','GET /api/v1/cards/:id/balance','GET /api/v1/cards/balance/:barcode','POST /api/v1/cards/:id/wallet','POST /api/v1/barcodes/register','DELETE /api/v1/barcodes/:barcode','GET /api/v1/merchants/:id/settlement','POST /api/v1/distributor/issue','POST /api/v1/square/redeem','POST /api/v1/shopify/redeem','POST /api/v1/refunds','GET /api/v1/refunds/:id','POST /api/v1/lithic/cards','GET /api/v1/lithic/status','POST /api/v1/kyc/session','GET /api/v1/kyc/session/:reference','GET /api/v1/kyc/session/:reference/refresh','GET /api/v1/kyc/status','POST /api/v1/stripe/webhook','POST /api/v1/paypal/webhook','GET /api/v1/plaid/status','POST /api/v1/plaid/link-token','POST /api/v1/plaid/exchange','GET /api/v1/stripe/orders/:sessionId','GET /kyc (applicant page)' ] }));

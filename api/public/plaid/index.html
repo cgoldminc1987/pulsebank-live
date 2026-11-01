@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PulseBank – Link a bank</title>
+<style>
+body{font:16px system-ui;background:#0b1020;color:#e6e9f5;max-width:480px;margin:0 auto;padding:24px}
+input,button{width:100%;box-sizing:border-box;padding:12px;margin:6px 0;border-radius:10px;border:1px solid #334;font-size:16px}
+input{background:#141a33;color:#fff}button{background:#6d5df6;color:#fff;border:0;font-weight:600}
+pre{background:#141a33;padding:12px;border-radius:10px;white-space:pre-wrap;word-break:break-all}
+</style></head><body>
+<h2>Link a bank (Plaid)</h2>
+<input id="tok" type="password" placeholder="Admin token" autocomplete="off">
+<input id="email" type="email" placeholder="Customer email (optional)">
+<button id="go">Connect bank</button>
+<pre id="out">Ready.</pre>
+<script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script>
+<script>
+const out = m => document.getElementById('out').textContent = typeof m === 'string' ? m : JSON.stringify(m, null, 2);
+const hdr = () => ({ 'Content-Type': 'application/json', 'X-Admin-Token': document.getElementById('tok').value });
+document.getElementById('go').onclick = async () => {
+  try {
+    out('Creating link token…');
+    const r = await fetch('/api/v1/plaid/link-token', { method: 'POST', headers: hdr(), body: JSON.stringify({ user_id: document.getElementById('email').value || 'pulsebank-user' }) });
+    const j = await r.json();
+    if (!r.ok) return out(j);
+    Plaid.create({
+      token: j.link_token,
+      onSuccess: async (public_token) => {
+        out('Exchanging…');
+        const x = await fetch('/api/v1/plaid/exchange', { method: 'POST', headers: hdr(), body: JSON.stringify({ public_token, email: document.getElementById('email').value || undefined }) });
+        out(await x.json());
+      },
+      onExit: (err) => { if (err) out(err); }
+    }).open();
+  } catch (e) { out(String(e)); }
+};
+</script></body></html>
