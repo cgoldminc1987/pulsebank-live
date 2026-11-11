@@ -26,7 +26,13 @@ const IssueSchema = z.object({
 });
 
 // POST /issue - core issuing endpoint for PulseBank /commands
-router.post('/issue', async (req,res,next) => {
+router.post('/issue', (req,res,next) => {
+  const token = process.env.ADMIN_TOKEN;
+  if (!token || req.header('X-Admin-Token') !== token) {
+    return res.status(401).json({ error: token ? 'admin token required' : 'ADMIN_TOKEN is not configured on the API service' });
+  }
+  next();
+}, async (req,res,next) => {
   try {
     const data = IssueSchema.parse(req.body);
     const pool = req.app.locals.pool;
