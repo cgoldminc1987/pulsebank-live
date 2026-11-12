@@ -42,10 +42,13 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$(dirname "$DESTINATION_PATH")"
-          gh api \
+          if ! gh api \
             --header 'Accept: application/vnd.github.raw+json' \
             "repos/${SOURCE_REPOSITORY}/contents/${SOURCE_PATH}?ref=${SOURCE_REF}" \
-            > "$RUNNER_TEMP/central.skill"
+            > "$RUNNER_TEMP/central.skill"; then
+            echo "::error::Cannot read ${SOURCE_REPOSITORY}/${SOURCE_PATH}@${SOURCE_REF} (404 or no access). The source repo is private: add a CENTRAL_SKILLS_TOKEN secret with read-only contents access to ${SOURCE_REPOSITORY}."
+            exit 1
+          fi
 
           test -s "$RUNNER_TEMP/central.skill"
           unzip -t "$RUNNER_TEMP/central.skill"
