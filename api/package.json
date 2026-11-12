@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "migrate": "node src/ledger/migrate.js"
+    "migrate": "node src/ledger/migrate.js",
+    "test": "node --test"
   },
   "dependencies": {
     "express": "^4.18.2",

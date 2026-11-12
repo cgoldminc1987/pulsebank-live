@@ -74,7 +74,13 @@ The single-file React terminal now calls the live API instead of rendering a can
 
 ## Before going live
 
-- No route has authentication. Put auth in front before exposing the host.
+- All `/api/v1` routes require the server-side `ADMIN_TOKEN` in the `X-Admin-Token` header
+  (or a Bearer Authorization header), except `GET /api/v1/health`, public barcode balance
+  lookup, and Stripe, PayPal, and KYC webhooks, which verify their processor signatures.
+  The self-service KYC endpoints and Square OAuth callback are admin-only for now; do not
+  expose those flows until customer-scoped access and OAuth state validation are implemented.
+- The default CORS list includes `https://pulsebank-website.fly.dev`; add any custom website
+  origin to `ALLOWED_ORIGINS` on the API host. CORS is not a substitute for API authentication.
 - Apple Wallet needs `certs/wwdr.pem`, `signerCert.pem`, `signerKey.pem` (+ passphrase).
 - Square OAuth needs `SQUARE_APP_ID` / `SQUARE_APP_SECRET`; Square redemption needs
   `node >= 18` for the global `fetch`.

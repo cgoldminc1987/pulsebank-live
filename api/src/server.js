@@ -17,6 +17,7 @@ const paypalRouter = require('./routes/paypal');
 const plaidRouter = require('./routes/plaid');
 const healthRouter = require('./routes/health');
 const adminRouter = require('./routes/admin');
+const { isPublicApiRequest, requireAdmin } = require('./middleware/api-access');
 
 const app = express();
 // Keep the exact raw bytes for Stripe webhook signature verification
@@ -25,17 +26,32 @@ app.use(express.json({ verify: (req, res, buf) => { req.rawBody = buf; } }));
 const { join } = require('path');
 
 // CORS: let the merchant terminal call this API from a browser.
-const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || 'https://pulsebank-terminal.onrender.com').split(',').map(s => s.trim()).filter(Boolean);
+const DEFAULT_ALLOWED_ORIGINS = [
+  'https://pulsebank-terminal.onrender.com',
+  'https://pulsebank-website.fly.dev'
+];
+const CONFIGURED_ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean);
+const ALLOWED_ORIGINS = new Set([...DEFAULT_ALLOWED_ORIGINS, ...CONFIGURED_ALLOWED_ORIGINS]);
 app.use((req, res, next) => {
   const origin = req.header('Origin');
-  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+  if (origin && ALLOWED_ORIGINS.has(origin)) {
     res.header('Access-Control-Allow-Origin', origin);
     res.header('Vary', 'Origin');
-    res.header('Access-Control-Allow-Headers', 'Content-Type, X-Idempotency-Key, X-Admin-Token');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, X-Idempotency-Key, X-Admin-Token, Authorization');
     res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   }
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
+});
+
+// Fail closed: only health, receipt balance checks, and processor-signed webhooks
+// are public. This runs before idempotency so a cached response cannot bypass auth.
+app.use('/api/v1', (req, res, next) => {
+  if (isPublicApiRequest(req.method, req.path)) return next();
+  return requireAdmin(req, res, next);
 });
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
