@@ -1,0 +1,86 @@
+name: Sync central secure wallet skill
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Daily reconciliation at 03:17 UTC.
+    - cron: "17 3 * * *"
+  repository_dispatch:
+    types: [central-skill-updated]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-central-secure-wallet-skill
+  cancel-in-progress: false
+
+env:
+  SOURCE_REPOSITORY: cgoldminc1987/enterprise-core-skills
+  SOURCE_PATH: skills/secure-wallet-platform-deployment.skill
+  SOURCE_REF: main
+  DESTINATION_PATH: skills/secure-wallet-platform-deployment.skill
+
+jobs:
+  sync:
+    name: Sync central skill package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out destination repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Download and validate central package
+        env:
+          # Set CENTRAL_SKILLS_TOKEN in the destination repository when the
+          # source repository is private. It needs read-only contents access
+          # to SOURCE_REPOSITORY. For a public source, GITHUB_TOKEN is enough.
+          GH_TOKEN: ${{ secrets.CENTRAL_SKILLS_TOKEN || github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$(dirname "$DESTINATION_PATH")"
+          gh api \
+            --header 'Accept: application/vnd.github.raw+json' \
+            "repos/${SOURCE_REPOSITORY}/contents/${SOURCE_PATH}?ref=${SOURCE_REF}" \
+            > "$RUNNER_TEMP/central.skill"
+
+          test -s "$RUNNER_TEMP/central.skill"
+          unzip -t "$RUNNER_TEMP/central.skill"
+          unzip -l "$RUNNER_TEMP/central.skill" | grep -Eq '(^|/)SKILL\.md$'
+          unzip -p "$RUNNER_TEMP/central.skill" SKILL.md > "$RUNNER_TEMP/SKILL.md"
+          grep -q '^name: secure-wallet-platform-deployment$' "$RUNNER_TEMP/SKILL.md"
+          grep -q '^description:' "$RUNNER_TEMP/SKILL.md"
+
+      - name: Compare central package with destination
+        id: compare
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f "$DESTINATION_PATH" ] && cmp -s "$RUNNER_TEMP/central.skill" "$DESTINATION_PATH"; then
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+            echo 'Skill package is already current.'
+          else
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+            cp "$RUNNER_TEMP/central.skill" "$DESTINATION_PATH"
+            echo "Central package differs; preparing $DESTINATION_PATH."
+          fi
+
+      - name: Commit synchronized package directly to main
+        if: steps.compare.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$DESTINATION_PATH"
+          git commit -m "Sync secure wallet platform skill from central templates"
+          git push origin HEAD:main
+
+      - name: Report package checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha256sum "$DESTINATION_PATH"
