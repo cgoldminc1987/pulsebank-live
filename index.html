@@ -48,7 +48,7 @@
 <section id="page-settings" class="hidden"><div class="heading"><div><h1>Settings & access</h1><div class="sub">Connect the protected admin data API. No user password is collected here.</div></div></div><div class="panel"><h2>Admin API access</h2><p class="muted">Paste the server-side ADMIN_TOKEN configured privately on the API hosting service. It is kept only in this browser tab session and sent in the X-Admin-Token header.</p><div class="field"><label>Admin token</label><input id="adminToken" type="password" autocomplete="off" placeholder="Paste ADMIN_TOKEN"></div><div class="actions"><button class="btn primary" onclick="saveToken()">Connect admin data</button><button class="btn" onclick="clearToken()">Clear token</button></div><div id="tokenMsg" class="footnote"></div></div><div class="panel"><h2>Environment</h2><div class="muted">Dashboard: pulsebank-terminal.onrender.com<br>API: pulsebank-gc-api.onrender.com<br>Currency: CAD<br>Region: Canada</div></div></section>
 </div></main></div>
 <script>
-const API='https://pulsebank-gc-api.onrender.com/api/v1';
+const API=(window.PULSEBANK_API_BASE||'https://pulsebank-gc-api.onrender.com/api/v1').replace(/\/+$/,'');
 let ledgerCache=[];
 const $=id=>document.getElementById(id);
 const money=c=>new Intl.NumberFormat('en-CA',{style:'currency',currency:'CAD'}).format((Number(c)||0)/100);
