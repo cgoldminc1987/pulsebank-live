@@ -56,34 +56,50 @@ async function fulfillSession(pool, session) {
   if (amount <= 0) throw new Error('checkout session has no amount_total - refusing to fulfill');
   const email = (session.customer_details && session.customer_details.email) || null;
   const idemKey = `stripe_order_${session.id}`;
+  const client = await pool.connect();
 
-  const done = await pool.query('SELECT card_id FROM ledger_entries WHERE idempotency_key=$1', [idemKey]);
-  if (done.rows[0]) {
-    const c = await pool.query('SELECT id, barcode FROM cards WHERE id=$1', [done.rows[0].card_id]);
-    if (c.rows[0]) return { cardId: c.rows[0].id, barcode: c.rows[0].barcode, resumed: true };
-  }
-
-  const cardId = `card_${uuidv4().slice(0, 8)}`;
-  const barcode = `${Math.floor(Math.random() * 1e12)}`.padStart(12, '0');
-
-  await pool.query('BEGIN');
   try {
-    await pool.query(
+    // A transaction must use one checked-out PostgreSQL connection. Calling
+    // pool.query('BEGIN') followed by pool.query(...) can split work across
+    // connections and leave the card and ledger out of sync.
+    await client.query('BEGIN');
+
+    const done = await client.query(
+      'SELECT card_id FROM ledger_entries WHERE idempotency_key=$1',
+      [idemKey]
+    );
+    if (done.rows[0]) {
+      const c = await client.query(
+        'SELECT id, barcode FROM cards WHERE id=$1',
+        [done.rows[0].card_id]
+      );
+      if (c.rows[0]) {
+        await client.query('COMMIT');
+        return { cardId: c.rows[0].id, barcode: c.rows[0].barcode, resumed: true };
+      }
+    }
+
+    const cardId = `card_${uuidv4().slice(0, 8)}`;
+    const barcode = `${Math.floor(Math.random() * 1e12)}`.padStart(12, '0');
+
+    await client.query(
       `INSERT INTO cards (id, merchant_id, amount_cad, balance_cad, type, status, barcode, no_expiry, recipient_email, payment_rail, stripe_payment_intent_id, external_reference)
        VALUES ($1,$2,$3,$3,'closed_loop','issued',$4,true,$5,'stripe',$6,$7)`,
       [cardId, ONLINE_MERCHANT_ID, amount, barcode, email, session.payment_intent || null, session.id]
     );
     const ledgerId = uuidv4();
-    await pool.query(
+    await client.query(
       `INSERT INTO ledger_entries (id, card_id, merchant_id, type, amount_cad, balance_after, idempotency_key)
        VALUES ($1,$2,$3,'ISSUE',$4,$4,$5)`,
       [ledgerId, cardId, ONLINE_MERCHANT_ID, amount, idemKey]
     );
-    await pool.query('COMMIT');
+    await client.query('COMMIT');
     return { cardId, barcode, amount, email };
   } catch (e) {
-    await pool.query('ROLLBACK').catch(() => {});
+    await client.query('ROLLBACK').catch(() => {});
     throw e;
+  } finally {
+    client.release();
   }
 }
 
