@@ -141,15 +141,24 @@ router.post('/webhook', async (req, res) => {
   }
 });
 
-// GET /api/v1/stripe/orders/:sessionId - ops lookup (was this checkout fulfilled?)
-router.get('/orders/:sessionId', async (req, res) => {
-  const { rows } = await req.app.locals.pool.query(
-    `SELECT stripe_session_id, amount_cad, currency, customer_email, card_id, barcode, status, created_at, fulfilled_at
-       FROM stripe_orders WHERE stripe_session_id=$1`,
-    [req.params.sessionId]
-  );
-  if (!rows[0]) return res.status(404).json({ error: 'order not found' });
-  return res.json(rows[0]);
+// GET /api/v1/stripe/orders/:sessionId - admin-only operational lookup.
+// Never expose customer email or the redeemable card barcode through a public URL.
+router.get('/orders/:sessionId', async (req, res, next) => {
+  const token = process.env.ADMIN_TOKEN;
+  if (!token || req.header('X-Admin-Token') !== token) {
+    return res.status(401).json({ error: token ? 'admin token required' : 'ADMIN_TOKEN is not configured on the API service' });
+  }
+  try {
+    const { rows } = await req.app.locals.pool.query(
+      `SELECT stripe_session_id, amount_cad, currency, card_id, status, created_at, fulfilled_at
+         FROM stripe_orders WHERE stripe_session_id=$1`,
+      [req.params.sessionId]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'order not found' });
+    return res.json(rows[0]);
+  } catch (error) {
+    return next(error);
+  }
 });
 
 module.exports = router;
