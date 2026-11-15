@@ -1,4 +1,5 @@
 const express = require('express');
+const { randomInt } = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 const router = express.Router();
 const { constructWebhookEvent } = require('../adapters/stripe');
@@ -51,40 +52,30 @@ async function ensureOrdersTable(pool) {
 // Issue the closed-loop card for a paid checkout session.
 // Idempotent: a redelivered/concurrent event finds the ledger entry by the
 // session-derived idempotency key instead of double-issuing.
-async function fulfillSession(pool, session) {
+async function fulfillSession(client, session) {
   const amount = Number(session.amount_total || 0);
-  if (amount <= 0) throw new Error('checkout session has no amount_total - refusing to fulfill');
+  if (!Number.isSafeInteger(amount) || amount <= 0) throw new Error('invalid checkout amount');
+  if (String(session.currency || '').toLowerCase() !== 'cad') throw new Error('unsupported checkout currency; CAD only');
   const email = (session.customer_details && session.customer_details.email) || null;
   const idemKey = `stripe_order_${session.id}`;
-
-  const done = await pool.query('SELECT card_id FROM ledger_entries WHERE idempotency_key=$1', [idemKey]);
+  const done = await client.query('SELECT card_id FROM ledger_entries WHERE idempotency_key=$1', [idemKey]);
   if (done.rows[0]) {
-    const c = await pool.query('SELECT id, barcode FROM cards WHERE id=$1', [done.rows[0].card_id]);
+    const c = await client.query('SELECT id, barcode FROM cards WHERE id=$1', [done.rows[0].card_id]);
     if (c.rows[0]) return { cardId: c.rows[0].id, barcode: c.rows[0].barcode, resumed: true };
   }
-
   const cardId = `card_${uuidv4().slice(0, 8)}`;
-  const barcode = `${Math.floor(Math.random() * 1e12)}`.padStart(12, '0');
-
-  await pool.query('BEGIN');
-  try {
-    await pool.query(
-      `INSERT INTO cards (id, merchant_id, amount_cad, balance_cad, type, status, barcode, no_expiry, recipient_email, payment_rail, stripe_payment_intent_id, external_reference)
-       VALUES ($1,$2,$3,$3,'closed_loop','issued',$4,true,$5,'stripe',$6,$7)`,
-      [cardId, ONLINE_MERCHANT_ID, amount, barcode, email, session.payment_intent || null, session.id]
-    );
-    const ledgerId = uuidv4();
-    await pool.query(
-      `INSERT INTO ledger_entries (id, card_id, merchant_id, type, amount_cad, balance_after, idempotency_key)
-       VALUES ($1,$2,$3,'ISSUE',$4,$4,$5)`,
-      [ledgerId, cardId, ONLINE_MERCHANT_ID, amount, idemKey]
-    );
-    await pool.query('COMMIT');
-    return { cardId, barcode, amount, email };
-  } catch (e) {
-    await pool.query('ROLLBACK').catch(() => {});
-    throw e;
-  }
+  const barcode = String(randomInt(0, 1_000_000_000_000)).padStart(12, '0');
+  await client.query(
+    `INSERT INTO cards (id, merchant_id, amount_cad, balance_cad, type, status, barcode, no_expiry, recipient_email, payment_rail, stripe_payment_intent_id, external_reference)
+     VALUES ($1,$2,$3,$3,'closed_loop','issued',$4,true,$5,'stripe',$6,$7)`,
+    [cardId, ONLINE_MERCHANT_ID, amount, barcode, email, session.payment_intent || null, session.id]
+  );
+  await client.query(
+    `INSERT INTO ledger_entries (id, card_id, merchant_id, type, amount_cad, balance_after, idempotency_key)
+     VALUES ($1,$2,$3,'ISSUE',$4,$4,$5)`,
+    [uuidv4(), cardId, ONLINE_MERCHANT_ID, amount, idemKey]
+  );
+  return { cardId, barcode, amount, email };
 }
 
 // POST /api/v1/stripe/webhook - Stripe-signed events only.
@@ -109,27 +100,41 @@ router.post('/webhook', async (req, res) => {
     await ensureOrdersTable(pool);
     const amount = Number(session.amount_total || 0);
     const email = (session.customer_details && session.customer_details.email) || null;
+    if (!session.id || !Number.isSafeInteger(amount) || amount <= 0) return res.status(400).json({ error: 'invalid_checkout_session' });
+    if (String(session.currency || '').toLowerCase() !== 'cad') return res.status(400).json({ error: 'unsupported_currency', supported: ['cad'] });
 
-    // One fulfillment per Stripe event id; redeliveries fall through to the
-    // idempotency-key check inside fulfillSession.
-    const up = await pool.query(
-      `INSERT INTO stripe_orders (stripe_event_id, stripe_session_id, payment_intent, amount_cad, currency, customer_email, status)
-       VALUES ($1,$2,$3,$4,$5,$6,'processing')
-       ON CONFLICT (stripe_event_id) DO NOTHING
-       RETURNING id`,
-      [event.id, session.id, session.payment_intent || null, amount, session.currency || 'cad', email]
-    );
-
-    if (up.rows.length) {
-      const fulfil = await fulfillSession(pool, session);
-      await pool.query(
-        `UPDATE stripe_orders SET card_id=$2, barcode=$3, status='fulfilled', fulfilled_at=NOW(), updated_at=NOW() WHERE stripe_event_id=$1`,
-        [event.id, fulfil.cardId, fulfil.barcode]
+    // Serialize retries by Checkout Session. The order, card and ledger commit atomically.
+    const client = await pool.connect();
+    let fulfil;
+    try {
+      await client.query('BEGIN');
+      const up = await client.query(
+        `INSERT INTO stripe_orders (stripe_event_id, stripe_session_id, payment_intent, amount_cad, currency, customer_email, status)
+         VALUES ($1,$2,$3,$4,'cad',$5,'processing')
+         ON CONFLICT (stripe_session_id) DO UPDATE SET updated_at=NOW()
+         RETURNING status, card_id, barcode`,
+        [event.id, session.id, session.payment_intent || null, amount, email]
       );
-      console.log(`stripe order fulfilled: ${session.id} -> ${fulfil.cardId} ($${(amount / 100).toFixed(2)} ${session.currency || 'cad'})`);
-    } else {
-      await pool.query(`UPDATE stripe_orders SET updated_at=NOW() WHERE stripe_event_id=$1 AND status='processing'`, [event.id]);
+      const order = up.rows[0];
+      if (order.status === 'fulfilled' && order.card_id) {
+        fulfil = { cardId: order.card_id, barcode: order.barcode, resumed: true };
+      } else {
+        fulfil = await fulfillSession(client, session);
+        await client.query(
+          `UPDATE stripe_orders SET card_id=$2, barcode=$3, status='fulfilled',
+             fulfilled_at=COALESCE(fulfilled_at,NOW()), updated_at=NOW()
+           WHERE stripe_session_id=$1`,
+          [session.id, fulfil.cardId, fulfil.barcode]
+        );
+      }
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw e;
+    } finally {
+      client.release();
     }
+    console.log(`stripe order fulfilled: ${session.id} -> ${fulfil.cardId} ($${(amount / 100).toFixed(2)} CAD)`);
     return res.json({ received: true });
   } catch (e) {
     console.error('stripe webhook handler failed:', e.message);
@@ -137,15 +142,24 @@ router.post('/webhook', async (req, res) => {
   }
 });
 
-// GET /api/v1/stripe/orders/:sessionId - ops lookup (was this checkout fulfilled?)
-router.get('/orders/:sessionId', async (req, res) => {
-  const { rows } = await req.app.locals.pool.query(
-    `SELECT stripe_session_id, amount_cad, currency, customer_email, card_id, barcode, status, created_at, fulfilled_at
-       FROM stripe_orders WHERE stripe_session_id=$1`,
-    [req.params.sessionId]
-  );
-  if (!rows[0]) return res.status(404).json({ error: 'order not found' });
-  return res.json(rows[0]);
+// GET /api/v1/stripe/orders/:sessionId - admin-only operational lookup.
+// Never expose customer email or the redeemable card barcode through a public URL.
+router.get('/orders/:sessionId', async (req, res, next) => {
+  const token = process.env.ADMIN_TOKEN;
+  if (!token || req.header('X-Admin-Token') !== token) {
+    return res.status(401).json({ error: token ? 'admin token required' : 'ADMIN_TOKEN is not configured on the API service' });
+  }
+  try {
+    const { rows } = await req.app.locals.pool.query(
+      `SELECT stripe_session_id, amount_cad, currency, card_id, status, created_at, fulfilled_at
+         FROM stripe_orders WHERE stripe_session_id=$1`,
+      [req.params.sessionId]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'order not found' });
+    return res.json(rows[0]);
+  } catch (error) {
+    return next(error);
+  }
 });
 
 module.exports = router;
