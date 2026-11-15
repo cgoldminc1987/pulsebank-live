@@ -1,4 +1,5 @@
 const express = require('express');
+const { randomInt } = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 const router = express.Router();
 const { constructWebhookEvent } = require('../adapters/stripe');
@@ -63,7 +64,7 @@ async function fulfillSession(client, session) {
     if (c.rows[0]) return { cardId: c.rows[0].id, barcode: c.rows[0].barcode, resumed: true };
   }
   const cardId = `card_${uuidv4().slice(0, 8)}`;
-  const barcode = `${Math.floor(Math.random() * 1e12)}`.padStart(12, '0');
+  const barcode = String(randomInt(0, 1_000_000_000_000)).padStart(12, '0');
   await client.query(
     `INSERT INTO cards (id, merchant_id, amount_cad, balance_cad, type, status, barcode, no_expiry, recipient_email, payment_rail, stripe_payment_intent_id, external_reference)
      VALUES ($1,$2,$3,$3,'closed_loop','issued',$4,true,$5,'stripe',$6,$7)`,
