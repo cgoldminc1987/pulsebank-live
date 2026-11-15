@@ -1,0 +1,27 @@
+name: Validate API
+
+on:
+  pull_request:
+    paths:
+      - 'api/**'
+      - '.github/workflows/validate-api.yml'
+  push:
+    branches:
+      - main
+      - 'fix/**'
+
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install API dependencies
+        working-directory: api
+        run: npm install --ignore-scripts
+      - name: Check JavaScript syntax
+        working-directory: api
+        run: |
+          find . -name '*.js' -not -path './node_modules/*' -print0 | xargs -0 -n1 node --check
