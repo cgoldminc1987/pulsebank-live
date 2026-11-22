@@ -14,6 +14,7 @@ const lithicRouter = require('./routes/lithic');
 const kycRouter = require('./routes/kyc');
 const stripeRouter = require('./routes/stripe');
 const paypalRouter = require('./routes/paypal');
+const redotpayRouter = require('./routes/redotpay');
 const plaidRouter = require('./routes/plaid');
 const healthRouter = require('./routes/health');
 const adminRouter = require('./routes/admin');
@@ -86,6 +87,7 @@ app.use('/api/v1/lithic', lithicRouter);
 app.use('/api/v1/kyc', kycRouter);
 app.use('/api/v1/stripe', stripeRouter);
 app.use('/api/v1/paypal', paypalRouter);
+app.use('/api/v1/redotpay', redotpayRouter);
 app.use('/api/v1/plaid', plaidRouter);
 
 // KYC applicant pages (static, no build step)
@@ -94,7 +96,7 @@ app.use('/kyc', kycStatic);
 app.use('/plaid', express.static(join(__dirname, '..', 'public', 'plaid'), { extensions: ['html'] }));
 
 // 404 as JSON, listing what this host serves
-app.use((req,res)=> res.status(404).json({ error:'not found', path:req.path, endpoints:[ 'GET /api/v1/health','POST /api/v1/cards/issue','POST /api/v1/cards/:id/redeem','POST /api/v1/cards/:id/void','GET /api/v1/cards/:id/balance','GET /api/v1/cards/balance/:barcode','POST /api/v1/cards/:id/wallet','POST /api/v1/barcodes/register','DELETE /api/v1/barcodes/:barcode','GET /api/v1/merchants/:id/settlement','POST /api/v1/distributor/issue','POST /api/v1/square/redeem','POST /api/v1/shopify/redeem','POST /api/v1/refunds','GET /api/v1/refunds/:id','POST /api/v1/lithic/cards','GET /api/v1/lithic/status','POST /api/v1/kyc/session','GET /api/v1/kyc/session/:reference','GET /api/v1/kyc/session/:reference/refresh','GET /api/v1/kyc/status','POST /api/v1/stripe/webhook','POST /api/v1/paypal/webhook','GET /api/v1/plaid/status','POST /api/v1/plaid/link-token','POST /api/v1/plaid/exchange','GET /api/v1/stripe/orders/:sessionId','GET /kyc (applicant page)' ] }));
+app.use((req,res)=> res.status(404).json({ error:'not found', path:req.path, endpoints:[ 'GET /api/v1/health','POST /api/v1/cards/issue','POST /api/v1/cards/:id/redeem','POST /api/v1/cards/:id/void','GET /api/v1/cards/:id/balance','GET /api/v1/cards/balance/:barcode','POST /api/v1/cards/:id/wallet','POST /api/v1/barcodes/register','DELETE /api/v1/barcodes/:barcode','GET /api/v1/merchants/:id/settlement','POST /api/v1/distributor/issue','POST /api/v1/square/redeem','POST /api/v1/shopify/redeem','POST /api/v1/refunds','GET /api/v1/refunds/:id','POST /api/v1/lithic/cards','GET /api/v1/lithic/status','POST /api/v1/kyc/session','GET /api/v1/kyc/session/:reference','GET /api/v1/kyc/session/:reference/refresh','GET /api/v1/kyc/status','POST /api/v1/stripe/webhook','POST /api/v1/paypal/webhook','GET /api/v1/plaid/status','POST /api/v1/plaid/link-token','POST /api/v1/plaid/exchange','GET /api/v1/stripe/orders/:sessionId','GET /api/v1/redotpay/status','POST /api/v1/redotpay/orders','POST /api/v1/redotpay/webhook','GET /api/v1/redotpay/orders/:orderId','GET /kyc (applicant page)' ] }));
 
 // BC compliance guard
 app.use((err,req,res,next)=>{
